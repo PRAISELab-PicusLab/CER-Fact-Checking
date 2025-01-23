@@ -13,10 +13,10 @@ from bs4 import BeautifulSoup
 
 # https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
 # Percorsi dei file
-embeddings_file = r"C:\Users\mary0\Desktop\Dashboard CER\abstract_embeddings.npy"
-pmid_file = r"C:\Users\mary0\Desktop\Dashboard CER\pmids.npy"
-faiss_index_file = r"C:\Users\mary0\Desktop\Dashboard CER\faiss_index.index"
-file_path = r'C:\Users\mary0\Desktop\Dashboard CER\parte_205.csv'
+embeddings_file = r"data\abstract_embeddings.npy"
+pmid_file = r"data\pmids.npy"
+faiss_index_file = r"data\faiss_index.index"
+file_path = r'data\parte_205.csv'
 
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
