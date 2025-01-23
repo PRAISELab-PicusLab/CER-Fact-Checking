@@ -1,0 +1,6 @@
+data/.gitattributes
+data/abstract_embeddings.npy
+data/faiss_index.index
+data/data.rar
+data/parte_205.csv
+data/pmids.npy
