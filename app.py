@@ -11,18 +11,19 @@ from transformers import pipeline
 import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
+from newsplease import NewsPlease
 
 # https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
 
 # Percorsi dei file
-embeddings_file = r"C:\Users\mary0\Desktop\Dashboard CER\abstract_embeddings.npy"
-pmid_file = r"C:\Users\mary0\Desktop\Dashboard CER\pmids.npy"
-faiss_index_file = r"C:\Users\mary0\Desktop\Dashboard CER\faiss_index.index"
-file_path = r'C:\Users\mary0\Desktop\Dashboard CER\parte_205.csv'
+embeddings_file = r"data\abstract_embeddings.npy"
+pmid_file = r"data\pmids.npy"
+faiss_index_file = r"data\faiss_index.index"
+file_path = r'data\parte_205.csv'
 #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
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key="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"
+    api_key="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"
 )
 
 # Carica i dati
@@ -31,15 +32,31 @@ data = pd.read_csv(file_path)
 # Inizializza il modello
 model = SentenceTransformer('all-MiniLM-L6-v2')  # Puoi cambiare modello se necessario
 
-def get_html_source(url):
-    """Effettua una richiesta all'URL e restituisce il sorgente HTML"""
+def get_article_data(url):
     try:
+        # Effettua una richiesta HTTP all'URL specificato
         response = requests.get(url)
+        # Verifica che la risposta sia positiva (status code 200)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        return soup.prettify()
+
+        # Estrae il contenuto HTML della pagina
+        html_content = response.text
+
+        # Utilizza NewsPlease per analizzare il contenuto dell'articolo
+        article = NewsPlease.from_html(html_content, url=url)
+
+        # Restituisci i dati strutturati dell'articolo
+        return {
+            "title": article.title,
+            "authors": article.authors,
+            "date_publish": article.date_publish,
+            "content": article.maintext,
+        }
+
     except requests.exceptions.RequestException as e:
-        return f"Errore durante il recupero dell'URL: {e}"
+        return {"error": f"Errore durante il recupero dell'URL: {e}"}
+    except Exception as e:
+        return {"error": f"Errore durante l'elaborazione dell'articolo: {e}"}
 
 def extract_and_split_claims(claims):
     """Estrae e divide i claims da un testo"""
@@ -421,16 +438,18 @@ elif page == "Page check":
         st.session_state.false_count = 0
         st.session_state.nei_count = 0
 
-        html_source = get_html_source(url)
+        article_data = get_article_data(url)
 
+        #st.write(f"Contenuto:\n{article_data['content']}")
         # Configura il client OpenAI
+
         try:
             # Costruisci il prompt
             prompt_template = f'''[INST]  <<SYS>>
 
             You are an expert scraper. Your task is to extract from the url health related question.
 
-            the url from extract the context and the clam is: {html_source}
+            the url from extract the context and the clam is: {article_data}
 
             Create simple claim of single sentence.
 
