@@ -1,4 +1,4 @@
-
+import matplotlib.pyplot as plt
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer
@@ -10,14 +10,16 @@ import re
 from transformers import pipeline
 import requests
 from bs4 import BeautifulSoup
+from io import BytesIO
 
 # https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
-# Percorsi dei file
-embeddings_file = r"data\abstract_embeddings.npy"
-pmid_file = r"data\pmids.npy"
-faiss_index_file = r"data\faiss_index.index"
-file_path = r'data\parte_205.csv'
 
+# Percorsi dei file
+embeddings_file = r"C:\Users\mary0\Desktop\Dashboard CER\abstract_embeddings.npy"
+pmid_file = r"C:\Users\mary0\Desktop\Dashboard CER\pmids.npy"
+faiss_index_file = r"C:\Users\mary0\Desktop\Dashboard CER\faiss_index.index"
+file_path = r'C:\Users\mary0\Desktop\Dashboard CER\parte_205.csv'
+#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
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
     api_key="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"
@@ -25,8 +27,6 @@ client = OpenAI(
 
 # Carica i dati
 data = pd.read_csv(file_path)
-
-
 
 # Inizializza il modello
 model = SentenceTransformer('all-MiniLM-L6-v2')  # Puoi cambiare modello se necessario
@@ -58,7 +58,6 @@ def extract_and_split_claims(claims):
 
     return claims_dict
 
-
 def extract_label_and_score(result):
     """
     Estrae la prima label e il primo score da una stringa data.
@@ -80,8 +79,6 @@ def extract_label_and_score(result):
     score_label = float(score_match.group(1)) if score_match else None
 
     return predicted_label, score_label
-
-
 
 # Funzione per estrarre e pulire le frasi da un elenco di stringhe
 def clean_phrases(phrases, pattern):
@@ -257,6 +254,7 @@ if page == "Single claim check":
     )
 
     if st.button("Enter"):
+
         if st.session_state.claim:
             top_abstracts = retrieve_top_abstracts(st.session_state.claim, model, index, pmids, data, top_k=5)
             st.session_state.top_abstracts = top_abstracts  # Salva i risultati
@@ -418,6 +416,11 @@ elif page == "Page check":
     url = st.text_input("Inserisci l'URL:")
 
     if st.button("Enter") and url:
+
+        st.session_state.true_count = 0
+        st.session_state.false_count = 0
+        st.session_state.nei_count = 0
+
         html_source = get_html_source(url)
 
         # Configura il client OpenAI
@@ -446,9 +449,11 @@ elif page == "Page check":
             Use always this structure.
             Start every claim with "Claim " followed by the number
 
-            The number of claims may go from 1 to n 
+            The number of claims may go from 1 to a max of 5 
 
-            The number of total claims is always odd
+            The claims have to be always health related
+
+            
                 '''
 
             # Chiamata API
@@ -573,14 +578,24 @@ elif page == "Page check":
                 result = generate_justification(st.session_state.claim, justification)
                 predicted_label, score_label = extract_label_and_score(result)
 
+
+                # Incrementa i contatori in base al predicted_label
                 if predicted_label == "True":
                     color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                    st.session_state.true_count += 1
                 elif predicted_label == "False":
                     color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                    st.session_state.false_count += 1
                 elif predicted_label == "NEI":
                     color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                    st.session_state.nei_count += 1
                 else:
                     color = "black"  # Default color
+
+                # Visualizza i contatori
+                # st.markdown(f"**True Count:** {st.session_state.true_count}")
+                # st.markdown(f"**False Count:** {st.session_state.false_count}")
+                # st.markdown(f"**NEI Count:** {st.session_state.nei_count}")
 
                 st.markdown(f'The Claim: {st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
                 st.markdown("### **Justification**")
@@ -635,6 +650,48 @@ elif page == "Page check":
                         st.write(content, unsafe_allow_html=True)
                     evidence_counter += 1  # Incrementa il contatore
 
+        # Grafico a torta
+        labels = 'True', 'False', 'NEI'
+        sizes = [st.session_state.true_count, st.session_state.false_count, st.session_state.nei_count]
+        colors = ['green', 'red', 'yellow']
+        explode = (0.1, 0, 0)  # Esplode il primo spicchio (True)
+        width, height = 5.0, 5.0
+
+        fig, ax = plt.subplots(figsize=(width, height))
+        ax.pie(
+            sizes,
+            explode=explode,
+            labels=labels,
+            colors=colors,
+            autopct='%1.1f%%',
+            shadow=True,
+            startangle=90
+        )
+        ax.axis('equal')  # Assicura che il grafico sia un cerchio perfetto
+        
+        buf = BytesIO()
+        fig.savefig(buf, format="png")
+        buf.seek(0)
+        st.image(buf, caption="pie_chart", use_column_width=False)
+        # Determina l'affidabilità basata sui contatori
+        true_count = st.session_state.true_count
+        false_count = st.session_state.false_count
+        nei_count = st.session_state.nei_count
+
+        if true_count > 0 and false_count == 0:
+            reliability = '<span style="color: darkgreen; font-weight: bold;">Highly Reliable</span>'
+        elif true_count > false_count:
+            reliability = '<span style="color: lightgreen; font-weight: bold;">Moderately Reliable</span>'
+        elif true_count == 0:
+            reliability = '<span style="color: darkred; font-weight: bold;">Not Reliable at All</span>'
+        elif false_count > true_count:
+            reliability = '<span style="color: lightcoral; font-weight: bold;">Not Reliable</span>'
+        elif (true_count == false_count) or (nei_count > true_count and nei_count > false_count and true_count != 0 and false_count != 0):
+            reliability = '<span style="color: yellow; font-weight: bold;">NEI</span>'
+        else:
+            reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
+
+        st.markdown(f"### **The page is : {reliability}**", unsafe_allow_html=True)
 
 # import streamlit as st
 # from pages import home, claims
