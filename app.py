@@ -12,7 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
 from newsplease import NewsPlease
-
+from streamlit_echarts import st_echarts
 # https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
 
 # Percorsi dei file
@@ -416,16 +416,18 @@ if page == "Single claim check":
                 # Itera sugli abstract processati ed elimina duplicati
                 seen_contents = set()  # Insieme per tracciare contenuti già visti
                 evidence_counter = 1
-
                 # Visualizza i risultati degli abstract processati con expander numerati
                 st.markdown("### **Scientific Evidence**")
-                tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
-                for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                    if content not in seen_contents:  # Aggiungi solo se non è già stato visto
-                        seen_contents.add(content)
-                        with tab:
-                            # Usa `st.write` per visualizzare HTML direttamente
-                            st.write(content, unsafe_allow_html=True)
+                if processed_abstracts:
+                    tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
+                    for tab, (name, content) in zip(tabs, processed_abstracts.items()):
+                        if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                            seen_contents.add(content)
+                            with tab:
+                                # Usa `st.write` per visualizzare HTML direttamente
+                                st.write(content, unsafe_allow_html=True)
+                else:
+                    st.markdown("No relevant Scientific Evidence found")
 
 elif page == "Page check":
     st.subheader("Page check")
@@ -543,9 +545,11 @@ elif page == "Page check":
 
                     Create a Justification from the sentences given.
 
-                    Use the structure: Justification: .... (don't use the word context)
+                    Use the structure: Justification: The claim is (label) because.... (don't use the word context)
 
                     Write as an online doctor to create the justification.
+                    If the claim contain a negative statement, underline it in justification. 
+                    Be confident with the statement
 
                     After, give some sentences from Context from scientific papers: that supports the label and reject the label
 
@@ -629,7 +633,13 @@ elif page == "Page check":
                     "abstract_5": abstract_5
                 }
                 supporting_texts = [item["text"] for item in supporting]
-                refusing_text = [item["text"] for item in refusing]
+                refusing_text = []
+                for item in refusing:
+                    try:
+                        refusing_text.append(item["text"])
+                    except (TypeError, KeyError):
+                        continue
+                print(refusing_text)
                 pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
                 #st.write(supporting)
                 #st.write(supporting_texts)
@@ -660,41 +670,69 @@ elif page == "Page check":
                 # Itera sugli abstract processati ed elimina duplicati
                 seen_contents = set()  # Insieme per tracciare contenuti già visti
                 evidence_counter = 1
-
                 # Visualizza i risultati degli abstract processati con expander numerati
                 st.markdown("### **Scientific Evidence**")
-                for name, content in processed_abstracts.items():
-                    if content not in seen_contents:  # Aggiungi solo se non è già stato visto
-                        seen_contents.add(content)
-                    with st.expander(f"Scientific Evidence {evidence_counter}"):  # Usa un titolo numerico incrementale
-                        # Usa `st.write` per visualizzare HTML direttamente
-                        st.write(content, unsafe_allow_html=True)
-                    evidence_counter += 1  # Incrementa il contatore
+                if processed_abstracts:
+                    tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
+                    for tab, (name, content) in zip(tabs, processed_abstracts.items()):
+                        if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                            seen_contents.add(content)
+                            with tab:
+                                # Usa `st.write` per visualizzare HTML direttamente
+                                st.write(content, unsafe_allow_html=True)
+                else:
+                    st.markdown("No relevant Scientific Evidence found")
 
-        # Grafico a torta
-        labels = 'True', 'False', 'NEI'
-        sizes = [st.session_state.true_count, st.session_state.false_count, st.session_state.nei_count]
-        colors = ['green', 'red', 'yellow']
-        explode = (0.1, 0, 0)  # Esplode il primo spicchio (True)
-        width, height = 5.0, 5.0
-
-        fig, ax = plt.subplots(figsize=(width, height))
-        ax.pie(
-            sizes,
-            explode=explode,
-            labels=labels,
-            colors=colors,
-            autopct='%1.1f%%',
-            shadow=True,
-            startangle=90
-        )
-        ax.axis('equal')  # Assicura che il grafico sia un cerchio perfetto
         
-        buf = BytesIO()
-        fig.savefig(buf, format="png")
-        buf.seek(0)
-        st.image(buf, caption="pie_chart", use_column_width=False)
-        # Determina l'affidabilità basata sui contatori
+        st.markdown("### **Page Summary**")
+        # Labels e colori
+        labels = ['True', 'False', 'NEI']
+        colors = ['green', 'red', 'yellow']
+
+        # Dati
+        sizes = [
+            st.session_state.true_count,
+            st.session_state.false_count,
+            st.session_state.nei_count
+        ]
+
+        # Configurazione del grafico a torta
+        options = {
+            "tooltip": {"trigger": "item"},
+            "legend": {"top": "5%", "left": "center"},
+            "series": [
+                {
+                    "name": "Document Status",
+                    "type": "pie",
+                    "radius": ["40%", "70%"],
+                    "avoidLabelOverlap": False,
+                    "itemStyle": {
+                        "borderRadius": 10,
+                        "borderColor": "#fff",
+                        "borderWidth": 2,
+                    },
+                    "label": {"show": True, "position": "center"},
+                    "emphasis": {
+                        "label": {"show": True, "fontSize": "20", "fontWeight": "bold"}
+                    },
+                    "labelLine": {"show": False},
+                    "data": [
+                        {"value": sizes[0], "name": labels[0], "itemStyle": {"color": colors[0]}},
+                        {"value": sizes[1], "name": labels[1], "itemStyle": {"color": colors[1]}},
+                        {"value": sizes[2], "name": labels[2], "itemStyle": {"color": colors[2]}},
+                    ],
+                }
+            ],
+        }
+
+        # Visualizzazione con Streamlit
+        st1, st2 = st.columns(2)
+
+        with st1:
+            st_echarts(
+                options=options, height="500px",
+            )
+
         true_count = st.session_state.true_count
         false_count = st.session_state.false_count
         nei_count = st.session_state.nei_count
@@ -713,25 +751,3 @@ elif page == "Page check":
             reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
 
         st.markdown(f"### **The page is : {reliability}**", unsafe_allow_html=True)
-
-# import streamlit as st
-# from pages import home, claims
-# from utils.parsing import parse_response, extract_label_and_score, clean_phrases
-# from utils.web_requests import get_html_source
-# import sys
-# import os
-# sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-# # Configurazione della pagina
-# st.set_page_config(page_title="CER - Combining Evidence and Reasoning Demo", layout="wide")
-
-# # Sidebar per la navigazione
-# st.sidebar.title("Navigazione")
-# page = st.sidebar.radio("Vai a", ["Home", "Single claim check", "Page check"])
-
-# # Navigazione tra le pagine
-# if page == "Home":
-#     home.render()
-# elif page == "Single claim check":
-#     claims.render_single_claim()
-# elif page == "Page check":
-#     claims.render_page_check()

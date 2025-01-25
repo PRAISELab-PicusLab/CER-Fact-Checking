@@ -81,6 +81,7 @@ pandas==2.0.3
 parsel==1.10.0
 Pillow==9.5.0
 plac==1.4.3
+prettytable==3.13.0
 propcache==0.2.1
 Protego==0.4.0
 protobuf==4.25.5
@@ -93,6 +94,7 @@ pydantic==2.10.5
 pydantic_core==2.27.2
 pydeck==0.9.1
 PyDispatcher==2.0.7
+pyecharts==2.0.8
 Pygments==2.19.1
 Pympler==1.1
 PyMySQL==1.1.1
@@ -121,12 +123,14 @@ sentence-transformers==2.2.2
 sentencepiece==0.2.0
 service-identity==24.2.0
 sgmllib3k==1.0.0
+simplejson==3.19.3
 six==1.17.0
 smmap==5.0.2
 sniffio==1.3.1
 soupsieve==2.6
 st-annotated-text==4.0.1
 streamlit==1.25.0
+streamlit-echarts==0.4.0
 sympy==1.13.1
 tenacity==8.5.0
 threadpoolctl==3.5.0
@@ -149,6 +153,7 @@ validators==0.34.0
 w3lib==2.2.1
 warcio==1.7.5
 watchdog==6.0.0
+wcwidth==0.2.13
 yarl==1.18.3
 zipp==3.21.0
 zope.interface==7.2
