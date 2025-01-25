@@ -138,7 +138,7 @@ def highlight_phrases(abstract_text, phrases, color, label):
     for phrase in phrases:
         abstract_text = re.sub(
             re.escape(phrase["text"]),
-            f'<span style="background-color: {color}; font-weight: bold;">{phrase["text"]}</span>',
+            f'<span style="background-color: {color}; font-weight: bold; border: 1px solid black; border-radius: 5px;">{phrase["text"]}</span>',
             abstract_text,
             flags=re.IGNORECASE
         )
@@ -234,11 +234,12 @@ def generate_justification(query, justification):
 
 # Titolo e layout principale
 st.set_page_config(page_title="CER - Combining Evidence and Reasoning Demo", layout="wide")
-st.title("✔️ CER - Combining Evidence and Reasoning Demo")
+st.title("✔️✨ CER - Biomedical Fact Checker")
 
 # Sidebar per la navigazione
-st.sidebar.title("Navigazione")
-page = st.sidebar.radio("Vai a", ["Single claim check", "Page check"])
+st.sidebar.title("🔬 Combining Evidence and Reasoning Demo")
+st.sidebar.caption("🔍 Fact-check biomedical claims using scientific evidence and reasoning.")
+page = st.sidebar.radio("🔍 Navigate to:", ["Single claim check", "Page check"])
 
 # Carica embeddings e indice FAISS una sola volta
 if 'embeddings_loaded' not in st.session_state:
@@ -261,6 +262,7 @@ if 'top_abstracts' not in st.session_state:
 
 if page == "Single claim check":
     st.subheader("Single claim check")
+    st.caption("✨ Enter a single claim to fact-check and hit the button to see the results! 🔍")
 
     # Interfaccia utente
     st.text_input(
@@ -270,7 +272,7 @@ if page == "Single claim check":
         on_change=lambda: None  # Funzione vuota per il binding
     )
 
-    if st.button("Enter"):
+    if st.button("✨ Fact Check"):
 
         if st.session_state.claim:
             top_abstracts = retrieve_top_abstracts(st.session_state.claim, model, index, pmids, data, top_k=5)
@@ -286,8 +288,270 @@ if page == "Single claim check":
                     globals()[f"distance_{i}"] = distance
                 prompt_template = f'''[INST] '''
 
+                with st.spinner('🔍 We are checking...'):
+                    try:
+                        # Preleva la domanda dal DataFrame
+                        query = st.session_state.claim
+
+                        # Costruisci il prompt
+                        prompt_template = f'''[INST]  <<SYS>>
+
+                        You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
+
+                        Use the information in Context
+
+                        elaborate the context to generate a new information.
+
+                        Use only the knowledge in Context to answer.
+
+                        Answer describing in a scentific way. Be formal during the answer. Use the third person.
+
+                        Answer without mentioning the context. Use it but don't refer to it in the text
+
+                        to answer, use max 300 word
+
+                        Create a Justification from the sentences given.
+
+                        Use the structure: Justification: .... (don't use the word context)
+
+                        Write as an online doctor to create the justification.
+
+                        After, give some sentences from Context from scientific papers: that supports the label and reject the label
+
+                        Supporting sentences from abstracts:
+                        information sentence from abstract_1:
+                        information sentence from abstract_2: 
+                        ..
+                        Refusing sentences from abstracts:
+                        information sentence from abstract_1:
+                        information sentence from abstract_2: 
+                        ..
+                        Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
+
+                        with the answer, gives a line like: "Label:". Always put Label as first. After Label, give the justification
+                        The justification will be always given as Justification:
+                        Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
+                        The Label will be chosen with a voting system of support/refuse before
+                        <<SYS>>
+
+                        Question: {query} [/INST]
+                        Context from scientific papers: {abstract_1} ; {abstract_2} ; {abstract_3} ; {abstract_4} ; {abstract_5} [/INST]
+                        '''
+
+                        # Chiamata API
+                        completion = client.chat.completions.create(
+                        model="meta/llama-3.1-405b-instruct",
+                        messages=[{"role": "user", "content": prompt_template}],
+                        temperature=0.1,
+                        top_p=0.7,
+                        max_tokens=1024,
+                        stream=True
+                        )
+
+                        # Raccogli la risposta
+                        Risposta = ""
+                        for chunk in completion:
+                            if chunk.choices[0].delta.content:
+                                Risposta += chunk.choices[0].delta.content
+
+                        # Debug: Controlla la risposta
+                        #st.write(Risposta)
+
+                    except Exception as e:
+                        st.write(f"Error processing index: {e}")
+
+                with st.spinner('🤔💬 Justifying the check...'):
+                    # Esegui il parsing e separa le variabili
+                    zeroshot_classifier = pipeline(
+                    "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
+                    )
+                    first_label, justification, supporting, refusing, notes = parse_response(Risposta)
+                    
+                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):      
+                    result = generate_justification(st.session_state.claim, justification)
+                    predicted_label, score_label = extract_label_and_score(result)
+
+                    if predicted_label == "True":
+                        color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                    elif predicted_label == "False":
+                        color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                    elif predicted_label == "NEI":
+                        color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                    else:
+                        color = "black"  # Default color
+
+                    st.markdown(f'The Claim: {st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
+                    st.markdown("### **Justification**")
+                    st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
+                    abstracts = {
+                        "abstract_1": abstract_1,
+                        "abstract_2": abstract_2,
+                        "abstract_3": abstract_3,
+                        "abstract_4": abstract_4,
+                        "abstract_5": abstract_5
+                    }
+                    supporting_texts = [item["text"] for item in supporting]
+                    refusing_text = [item["text"] for item in refusing]
+                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
+                    #st.write(supporting)
+                    #st.write(supporting_texts)
+                    supporting = clean_phrases(supporting_texts, pattern)
+                    #st.write(supporting)
+                    refusing = clean_phrases(refusing_text, pattern)
+                    processed_abstracts = {}
+                    for abstract_name, abstract_text in abstracts.items():
+                        # Evidenzia frasi di supporto in verde
+                        supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
+                        abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
+                        
+                        # Evidenzia frasi di rifiuto in rosso
+                        refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
+                        abstract_text = highlight_phrases(abstract_text, refusing_matches, "lightred", predicted_label)
+                        
+                        # Aggiungi solo abstract che hanno frasi evidenziate in verde
+                        if supporting_matches:
+                            # Aggiungi la reference se esiste una variabile corrispondente
+                            reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
+                            if reference_variable in globals():  # Controlla se la variabile esiste
+                                reference_value = globals()[reference_variable]
+                                abstract_text += f"<br><br><strong>🔗 Reference:</strong> {reference_value}"
+                            
+                            # Aggiungi l'abstract processato
+                            processed_abstracts[abstract_name] = abstract_text
+
+                    # Itera sugli abstract processati ed elimina duplicati
+                    seen_contents = set()  # Insieme per tracciare contenuti già visti
+                    evidence_counter = 1
+                    # Visualizza i risultati degli abstract processati con expander numerati
+                    st.markdown("### **Scientific Evidence**")
+                    # Aggiungi una legenda per i colori
+                    legend_html = """
+                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                            <div style="width: 20px; height: 20px; background-color: green; margin-right: 10px; border-radius: 5px;"></div>
+                            <div>Positive Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                            <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
+                            <div>Negative Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                            <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
+                            <div>Dubious Evidence</div>
+                        </div>
+                    </div>
+                    """
+                    col1, col2 = st.columns([0.8, 0.2])
+                    
+                    with col1:
+                        if processed_abstracts:
+                            tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
+                            for tab, (name, content) in zip(tabs, processed_abstracts.items()):
+                                if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                                    seen_contents.add(content)
+                                    with tab:
+                                        # Usa `st.write` per visualizzare HTML direttamente
+                                        st.write(content, unsafe_allow_html=True)
+                        else:
+                            st.markdown("No relevant Scientific Evidence found")
+                    
+                    with col2:
+                        st.caption("Legend")
+                        st.markdown(legend_html, unsafe_allow_html=True)
+
+elif page == "Page check":
+    st.subheader("Page check")
+    st.write("Questa è la pagina per il controllo delle pagine online.")
+    # Aggiungi qui il codice per la funzionalità di controllo delle pagine
+    st.markdown("### **Pagina da controllare**")
+    url = st.text_input("Inserisci l'URL:")
+
+    if st.button("Enter") and url:
+
+        st.session_state.true_count = 0
+        st.session_state.false_count = 0
+        st.session_state.nei_count = 0
+
+        article_data = get_article_data(url)
+
+        try:
+            # Costruisci il prompt
+            prompt_template = f'''[INST]  <<SYS>>
+
+            You are an expert scraper. Your task is to extract from the url health related question.
+
+            the url from extract the context and the clam is: {article_data}
+
+            Create simple claim of single sentence.
+
+            Dont's use *
+
+            Give just the claim. Don't write other things
+
+            Extract only health related claim.
+
+            Rank eventual claim like:
+
+            Claim 1:
+            Claim 2:
+            Claim 3:
+            
+            Use always this structure.
+            Start every claim with "Claim " followed by the number
+
+            The number of claims may go from 1 to a max of 5 
+
+            The claims have to be always health related
+
+            
+            '''
+
+            # Chiamata API
+            completion = client.chat.completions.create(
+            model="meta/llama-3.1-405b-instruct",
+            messages=[{"role": "user", "content": prompt_template}],
+            temperature=0.1,
+            top_p=0.7,
+            max_tokens=1024,
+            stream=True
+            )
+
+            # Raccogli la risposta
+            Answer = ""
+            for chunk in completion:
+                if chunk.choices[0].delta.content:
+                    Answer += chunk.choices[0].delta.content
+
+            # Debug: Controlla la risposta
+            print(f"{Answer}")
+
+        except Exception as e:
+            print(f"Error {e}")
+
+        claims_dict = extract_and_split_claims(Answer)
+
+        # Visualizza le claim su Streamlit con expander
+        st.markdown("### **Claims Extracted**")
+        for i in range(1, len(claims_dict) + 1):
+            with st.expander(f"Claim {i}"):
+                st.write(globals()[f"Claim_{i}"])
+        for claim_key, claim_text in claims_dict.items():
+            st.session_state.claim = claim_text
+            if st.session_state.claim:
+                top_abstracts = retrieve_top_abstracts(st.session_state.claim, model, index, pmids, data, top_k=5)
+                st.session_state.top_abstracts = top_abstracts  # Salva i risultati
+
+            st.markdown(f"### **Results for {claim_key}**")
+            for i, (abstract, pmid, distance) in enumerate(st.session_state.top_abstracts, 1):
+                pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+                globals()[f"abstract_{i}"] = abstract
+                globals()[f"reference_{i}"] = pubmed_url
+                globals()[f"distance_{i}"] = distance
+            prompt_template = f'''[INST] '''
+
+            with st.spinner('🔍 We are checking...'):
                 try:
-                    # Preleva la domanda dal DataFrame
+                # Preleva la domanda dal DataFrame
                     query = st.session_state.claim
 
                     # Costruisci il prompt
@@ -352,25 +616,32 @@ if page == "Single claim check":
                             Risposta += chunk.choices[0].delta.content
 
                     # Debug: Controlla la risposta
-                    #st.write(Risposta)
+                    print("{Nuova answer}")
 
                 except Exception as e:
                     st.write(f"Error processing index: {e}")
 
+            with st.spinner('🤔💬 Justifying the check...'):
                 # Esegui il parsing e separa le variabili
                 zeroshot_classifier = pipeline(
                 "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
                 )
                 first_label, justification, supporting, refusing, notes = parse_response(Risposta)
+                
+            with st.spinner('🕵️‍♂️📜 We are finding evidence...'):      
                 result = generate_justification(st.session_state.claim, justification)
                 predicted_label, score_label = extract_label_and_score(result)
 
+                # Incrementa i contatori in base al predicted_label
                 if predicted_label == "True":
                     color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                    st.session_state.true_count += 1
                 elif predicted_label == "False":
                     color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                    st.session_state.false_count += 1
                 elif predicted_label == "NEI":
                     color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                    st.session_state.nei_count += 1
                 else:
                     color = "black"  # Default color
 
@@ -378,19 +649,16 @@ if page == "Single claim check":
                 st.markdown("### **Justification**")
                 st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
                 abstracts = {
-                    "abstract_1": abstract_1,
-                    "abstract_2": abstract_2,
-                    "abstract_3": abstract_3,
-                    "abstract_4": abstract_4,
-                    "abstract_5": abstract_5
+                "abstract_1": abstract_1,
+                "abstract_2": abstract_2,
+                "abstract_3": abstract_3,
+                "abstract_4": abstract_4,
+                "abstract_5": abstract_5
                 }
                 supporting_texts = [item["text"] for item in supporting]
                 refusing_text = [item["text"] for item in refusing]
                 pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
-                #st.write(supporting)
-                #st.write(supporting_texts)
                 supporting = clean_phrases(supporting_texts, pattern)
-                #st.write(supporting)
                 refusing = clean_phrases(refusing_text, pattern)
                 processed_abstracts = {}
                 for abstract_name, abstract_text in abstracts.items():
@@ -408,8 +676,8 @@ if page == "Single claim check":
                         reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
                         if reference_variable in globals():  # Controlla se la variabile esiste
                             reference_value = globals()[reference_variable]
-                            abstract_text += f"<br><br><strong>Reference:</strong> {reference_value}"
-                        
+                            abstract_text += f"<br><br><strong>🔗 Reference:</strong> {reference_value}"
+                            
                         # Aggiungi l'abstract processato
                         processed_abstracts[abstract_name] = abstract_text
 
@@ -418,272 +686,41 @@ if page == "Single claim check":
                 evidence_counter = 1
                 # Visualizza i risultati degli abstract processati con expander numerati
                 st.markdown("### **Scientific Evidence**")
-                if processed_abstracts:
-                    tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
-                    for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                        if content not in seen_contents:  # Aggiungi solo se non è già stato visto
-                            seen_contents.add(content)
-                            with tab:
-                                # Usa `st.write` per visualizzare HTML direttamente
-                                st.write(content, unsafe_allow_html=True)
-                else:
-                    st.markdown("No relevant Scientific Evidence found")
+                # Aggiungi una legenda per i colori
+                legend_html = """
+                <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div style="width: 20px; height: 20px; background-color: green; margin-right: 10px; border-radius: 5px;"></div>
+                    <div>Positive Evidence</div>
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
+                    <div>Negative Evidence</div>
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
+                    <div>Dubious Evidence</div>
+                </div>
+                </div>
+                """
+                col1, col2 = st.columns([0.8, 0.2])
+                
+                with col1:
+                    if processed_abstracts:
+                        tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
+                        for tab, (name, content) in zip(tabs, processed_abstracts.items()):
+                            if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                                seen_contents.add(content)
+                                with tab:
+                                    # Usa `st.write` per visualizzare HTML direttamente
+                                    st.write(content, unsafe_allow_html=True)
+                    else:
+                        st.markdown("No relevant Scientific Evidence found")
+                
+                with col2:
+                    st.caption("Legend")
+                    st.markdown(legend_html, unsafe_allow_html=True)
 
-elif page == "Page check":
-    st.subheader("Page check")
-    st.write("Questa è la pagina per il controllo delle pagine online.")
-    # Aggiungi qui il codice per la funzionalità di controllo delle pagine
-    st.markdown("### **Pagina da controllare**")
-    url = st.text_input("Inserisci l'URL:")
-
-    if st.button("Enter") and url:
-
-        st.session_state.true_count = 0
-        st.session_state.false_count = 0
-        st.session_state.nei_count = 0
-
-        article_data = get_article_data(url)
-
-        #st.write(f"Contenuto:\n{article_data['content']}")
-        # Configura il client OpenAI
-
-        try:
-            # Costruisci il prompt
-            prompt_template = f'''[INST]  <<SYS>>
-
-            You are an expert scraper. Your task is to extract from the url health related question.
-
-            the url from extract the context and the clam is: {article_data}
-
-            Create simple claim of single sentence.
-
-            Dont's use *
-
-            Give just the claim. Don't write other things
-
-            Extract only health related claim.
-
-            Rank eventual claim like:
-
-            Claim 1:
-            Claim 2:
-            Claim 3:
-            
-            Use always this structure.
-            Start every claim with "Claim " followed by the number
-
-            The number of claims may go from 1 to a max of 5 
-
-            The claims have to be always health related
-
-            
-                '''
-
-            # Chiamata API
-            completion = client.chat.completions.create(
-                model="meta/llama-3.1-405b-instruct",
-                messages=[{"role": "user", "content": prompt_template}],
-                temperature=0.1,
-                top_p=0.7,
-                max_tokens=1024,
-                stream=True
-            )
-
-            # Raccogli la risposta
-            Answer = ""
-            for chunk in completion:
-                if chunk.choices[0].delta.content:
-                    Answer += chunk.choices[0].delta.content
-
-            # Debug: Controlla la risposta
-            print(f"{Answer}")
-
-        except Exception as e:
-            print(f"Error {e}")
-
-        claims_dict = extract_and_split_claims(Answer)
-
-        # Visualizza le claim su Streamlit con expander
-        st.markdown("### **Claims Extracted**")
-        for i in range(1, len(claims_dict) + 1):
-            with st.expander(f"Claim {i}"):
-                st.write(globals()[f"Claim_{i}"])
-        for claim_key, claim_text in claims_dict.items():
-            st.session_state.claim = claim_text
-            if st.session_state.claim:
-                top_abstracts = retrieve_top_abstracts(st.session_state.claim, model, index, pmids, data, top_k=5)
-                st.session_state.top_abstracts = top_abstracts  # Salva i risultati
-
-                st.markdown(f"### **Results for {claim_key}**")
-                for i, (abstract, pmid, distance) in enumerate(st.session_state.top_abstracts, 1):
-                    pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-                    globals()[f"abstract_{i}"] = abstract
-                    globals()[f"reference_{i}"] = pubmed_url
-                    globals()[f"distance_{i}"] = distance
-                prompt_template = f'''[INST] '''
-
-                try:
-                    # Preleva la domanda dal DataFrame
-                    query = st.session_state.claim
-
-                    # Costruisci il prompt
-                    prompt_template = f'''[INST]  <<SYS>>
-
-                    You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
-
-                    Use the information in Context
-
-                    elaborate the context to generate a new information.
-
-                    Use only the knowledge in Context to answer.
-
-                    Answer describing in a scentific way. Be formal during the answer. Use the third person.
-
-                    Answer without mentioning the context. Use it but don't refer to it in the text
-
-                    to answer, use max 300 word
-
-                    Create a Justification from the sentences given.
-
-                    Use the structure: Justification: The claim is (label) because.... (don't use the word context)
-
-                    Write as an online doctor to create the justification.
-                    If the claim contain a negative statement, underline it in justification. 
-                    Be confident with the statement
-
-                    After, give some sentences from Context from scientific papers: that supports the label and reject the label
-
-                    Supporting sentences from abstracts:
-                    information sentence from abstract_1:
-                    information sentence from abstract_2: 
-                    ..
-                    Refusing sentences from abstracts:
-                    information sentence from abstract_1:
-                    information sentence from abstract_2: 
-                    ..
-                    Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
-
-                    with the answer, gives a line like: "Label:". Always put Label as first. After Label, give the justification
-                    The justification will be always given as Justification:
-                    Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
-                    The Label will be chosen with a voting system of support/refuse before
-                    <<SYS>>
-
-                    Question: {query} [/INST]
-                    Context from scientific papers: {abstract_1} ; {abstract_2} ; {abstract_3} ; {abstract_4} ; {abstract_5} [/INST]
-                    '''
-
-                    # Chiamata API
-                    completion = client.chat.completions.create(
-                    model="meta/llama-3.1-405b-instruct",
-                    messages=[{"role": "user", "content": prompt_template}],
-                    temperature=0.1,
-                    top_p=0.7,
-                    max_tokens=1024,
-                    stream=True
-                    )
-
-                    # Raccogli la risposta
-                    Risposta = ""
-                    for chunk in completion:
-                        if chunk.choices[0].delta.content:
-                            Risposta += chunk.choices[0].delta.content
-
-                    # Debug: Controlla la risposta
-                    print("{Nuova answer}")
-
-                except Exception as e:
-                    st.write(f"Error processing index: {e}")
-
-                # Esegui il parsing e separa le variabili
-                zeroshot_classifier = pipeline(
-                "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
-                )
-                first_label, justification, supporting, refusing, notes = parse_response(Risposta)
-                result = generate_justification(st.session_state.claim, justification)
-                predicted_label, score_label = extract_label_and_score(result)
-
-
-                # Incrementa i contatori in base al predicted_label
-                if predicted_label == "True":
-                    color = f"rgba(0, 204, 0, {score_label})"  # Verde
-                    st.session_state.true_count += 1
-                elif predicted_label == "False":
-                    color = f"rgba(204, 0, 0, {score_label})"  # Rosso
-                    st.session_state.false_count += 1
-                elif predicted_label == "NEI":
-                    color = f"rgba(255, 255, 0, {score_label})"  # Giallo
-                    st.session_state.nei_count += 1
-                else:
-                    color = "black"  # Default color
-
-                # Visualizza i contatori
-                # st.markdown(f"**True Count:** {st.session_state.true_count}")
-                # st.markdown(f"**False Count:** {st.session_state.false_count}")
-                # st.markdown(f"**NEI Count:** {st.session_state.nei_count}")
-
-                st.markdown(f'The Claim: {st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
-                st.markdown("### **Justification**")
-                st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
-                abstracts = {
-                    "abstract_1": abstract_1,
-                    "abstract_2": abstract_2,
-                    "abstract_3": abstract_3,
-                    "abstract_4": abstract_4,
-                    "abstract_5": abstract_5
-                }
-                supporting_texts = [item["text"] for item in supporting]
-                refusing_text = []
-                for item in refusing:
-                    try:
-                        refusing_text.append(item["text"])
-                    except (TypeError, KeyError):
-                        continue
-                print(refusing_text)
-                pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
-                #st.write(supporting)
-                #st.write(supporting_texts)
-                supporting = clean_phrases(supporting_texts, pattern)
-                #st.write(supporting)
-                refusing = clean_phrases(refusing_text, pattern)
-                processed_abstracts = {}
-                for abstract_name, abstract_text in abstracts.items():
-                    # Evidenzia frasi di supporto in verde
-                    supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
-                    abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
-                    
-                    # Evidenzia frasi di rifiuto in rosso
-                    refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
-                    abstract_text = highlight_phrases(abstract_text, refusing_matches, "lightred", predicted_label)
-                    
-                    # Aggiungi solo abstract che hanno frasi evidenziate in verde
-                    if supporting_matches:
-                    # Aggiungi la reference se esiste una variabile corrispondente
-                        reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
-                        if reference_variable in globals():  # Controlla se la variabile esiste
-                            reference_value = globals()[reference_variable]
-                            abstract_text += f"<br><br><strong>Reference:</strong> {reference_value}"
-                        
-                        # Aggiungi l'abstract processato
-                        processed_abstracts[abstract_name] = abstract_text
-
-                # Itera sugli abstract processati ed elimina duplicati
-                seen_contents = set()  # Insieme per tracciare contenuti già visti
-                evidence_counter = 1
-                # Visualizza i risultati degli abstract processati con expander numerati
-                st.markdown("### **Scientific Evidence**")
-                if processed_abstracts:
-                    tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
-                    for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                        if content not in seen_contents:  # Aggiungi solo se non è già stato visto
-                            seen_contents.add(content)
-                            with tab:
-                                # Usa `st.write` per visualizzare HTML direttamente
-                                st.write(content, unsafe_allow_html=True)
-                else:
-                    st.markdown("No relevant Scientific Evidence found")
-
-        
         st.markdown("### **Page Summary**")
         # Labels e colori
         labels = ['True', 'False', 'NEI']
@@ -701,27 +738,27 @@ elif page == "Page check":
             "tooltip": {"trigger": "item"},
             "legend": {"top": "5%", "left": "center"},
             "series": [
-                {
-                    "name": "Document Status",
-                    "type": "pie",
-                    "radius": ["40%", "70%"],
-                    "avoidLabelOverlap": False,
-                    "itemStyle": {
-                        "borderRadius": 10,
-                        "borderColor": "#fff",
-                        "borderWidth": 2,
-                    },
-                    "label": {"show": True, "position": "center"},
-                    "emphasis": {
-                        "label": {"show": True, "fontSize": "20", "fontWeight": "bold"}
-                    },
-                    "labelLine": {"show": False},
-                    "data": [
-                        {"value": sizes[0], "name": labels[0], "itemStyle": {"color": colors[0]}},
-                        {"value": sizes[1], "name": labels[1], "itemStyle": {"color": colors[1]}},
-                        {"value": sizes[2], "name": labels[2], "itemStyle": {"color": colors[2]}},
-                    ],
-                }
+            {
+                "name": "Document Status",
+                "type": "pie",
+                "radius": ["40%", "70%"],
+                "avoidLabelOverlap": False,
+                "itemStyle": {
+                "borderRadius": 10,
+                "borderColor": "#fff",
+                "borderWidth": 2,
+                },
+                "label": {"show": True, "position": "center"},
+                "emphasis": {
+                "label": {"show": True, "fontSize": "20", "fontWeight": "bold"}
+                },
+                "labelLine": {"show": False},
+                "data": [
+                {"value": sizes[0], "name": labels[0], "itemStyle": {"color": colors[0]}},
+                {"value": sizes[1], "name": labels[1], "itemStyle": {"color": colors[1]}},
+                {"value": sizes[2], "name": labels[2], "itemStyle": {"color": colors[2]}},
+                ],
+            }
             ],
         }
 
@@ -730,7 +767,7 @@ elif page == "Page check":
 
         with st1:
             st_echarts(
-                options=options, height="500px",
+            options=options, height="500px",
             )
 
         true_count = st.session_state.true_count
