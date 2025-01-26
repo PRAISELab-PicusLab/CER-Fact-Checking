@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from io import BytesIO
 from newsplease import NewsPlease
 from streamlit_echarts import st_echarts
+from streamlit_option_menu import option_menu
 # https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
 
 # Percorsi dei file
@@ -234,12 +235,20 @@ def generate_justification(query, justification):
 
 # Titolo e layout principale
 st.set_page_config(page_title="CER - Combining Evidence and Reasoning Demo", layout="wide")
+
+# horizontal menu
+page = option_menu(None, ["Single claim check", "Page check", "About"], 
+    icons=['check', 'ui-checks', 'info-circle'], 
+    menu_icon="cast", default_index=0, orientation="horizontal")
+print(page)
+
+
 st.title("✔️✨ CER - Biomedical Fact Checker")
 
 # Sidebar per la navigazione
 st.sidebar.title("🔬 Combining Evidence and Reasoning Demo")
 st.sidebar.caption("🔍 Fact-check biomedical claims using scientific evidence and reasoning.")
-page = st.sidebar.radio("🔍 Navigate to:", ["Single claim check", "Page check"])
+# page = st.sidebar.radio("🔍 Navigate to:", ["Single claim check", "Page check"])
 
 # Carica embeddings e indice FAISS una sola volta
 if 'embeddings_loaded' not in st.session_state:
@@ -461,12 +470,10 @@ if page == "Single claim check":
 
 elif page == "Page check":
     st.subheader("Page check")
-    st.write("Questa è la pagina per il controllo delle pagine online.")
-    # Aggiungi qui il codice per la funzionalità di controllo delle pagine
-    st.markdown("### **Pagina da controllare**")
-    url = st.text_input("Inserisci l'URL:")
+    st.caption("✨ Enter a URL to fact-check the health-related claims on the page and hit the button to see the results! 🔍")
+    url = st.text_input("URL to fact-check:")
 
-    if st.button("Enter") and url:
+    if st.button("✨ Fact Check") and url:
 
         st.session_state.true_count = 0
         st.session_state.false_count = 0
@@ -532,6 +539,7 @@ elif page == "Page check":
 
         # Visualizza le claim su Streamlit con expander
         st.markdown("### **Claims Extracted**")
+        st.caption("🔍 Here are the health-related claims extracted from the page:")
         for i in range(1, len(claims_dict) + 1):
             with st.expander(f"Claim {i}"):
                 st.write(globals()[f"Claim_{i}"])
