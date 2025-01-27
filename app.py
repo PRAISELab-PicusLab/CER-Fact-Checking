@@ -275,13 +275,14 @@ if page == "Single claim check":
     st.subheader("Single claim check")
     st.caption("✨ Enter a single claim to fact-check and hit the button to see the results! 🔍")
 
-    # Interfaccia utente
-    st.text_input(
-        "Claim to fact-check:",
-        value=st.session_state.claim,
-        key="claim",  # Associa il valore allo stato della sessione
-        on_change=lambda: None  # Funzione vuota per il binding
-    )
+    # # Interfaccia utente
+    # st.text_input(
+    #     "Claim to fact-check:",
+    #     value=st.session_state.claim,
+    #     key="claim",  # Associa il valore allo stato della sessione
+    #     on_change=lambda: None  # Funzione vuota per il binding
+    # )
+    st.session_state.claim = st.text_input("Claim to fact-check:")
 
     if st.button("✨ Fact Check"):
 
@@ -404,8 +405,19 @@ if page == "Single claim check":
                         "abstract_4": abstract_4,
                         "abstract_5": abstract_5
                     }
-                    supporting_texts = [item["text"] for item in supporting]
-                    refusing_text = [item["text"] for item in refusing]
+                    supporting_texts = []
+                    for item in supporting:
+                        try:
+                            supporting_texts.append(item["text"])
+                        except (TypeError, KeyError):
+                            continue
+
+                    refusing_text = []
+                    for item in refusing:
+                        try:
+                            refusing_text.append(item["text"])
+                        except (TypeError, KeyError):
+                            continue
                     pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
                     #st.write(supporting)
                     #st.write(supporting_texts)
@@ -677,8 +689,19 @@ elif page == "Page check":
                     "abstract_4": abstract_4,
                     "abstract_5": abstract_5
                     }
-                    supporting_texts = [item["text"] for item in supporting]
-                    refusing_text = [item["text"] for item in refusing]
+                    supporting_texts = []
+                    for item in supporting:
+                        try:
+                            supporting_texts.append(item["text"])
+                        except (TypeError, KeyError):
+                            continue
+
+                    refusing_text = []
+                    for item in refusing:
+                        try:
+                            refusing_text.append(item["text"])
+                        except (TypeError, KeyError):
+                            continue
                     pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
                     supporting = clean_phrases(supporting_texts, pattern)
                     refusing = clean_phrases(refusing_text, pattern)
