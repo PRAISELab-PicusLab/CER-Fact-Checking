@@ -489,8 +489,9 @@ elif page == "Page check":
     st.subheader("Page check")
     st.caption("✨ Enter a URL to fact-check the health-related claims on the page and hit the button to see the results! 🔍")
     url = st.text_input("URL to fact-check:")
-
+    
     if st.button("✨ Fact Check") and url:
+
 
         st.session_state.true_count = 0
         st.session_state.false_count = 0
@@ -604,7 +605,7 @@ elif page == "Page check":
 
                         Create a Justification from the sentences given.
 
-                        Use the structure: Justification: .... (don't use the word context)
+                        Use the structure: Justification: The claim is (label) because.. (don't use the word context)
 
                         Write as an online doctor to create the justification.
 
