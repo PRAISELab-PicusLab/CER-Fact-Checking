@@ -15,8 +15,8 @@ We use the following data sources for training and evaluating the system:
 
 ## 🛠 Technologies Used
 - **Python**: Core programming language.
-- **BM25 Indexing**: For efficient retrieval of biomedical abstracts.
-- [**Mixtral-8x22B-Instruct-v0.1**](https://huggingface.co/mistralai/Mixtral-8x22B-Instruct-v0.1): Language model for generating justifications.
+- **FAISS Indexing**: For efficient retrieval of biomedical abstracts.
+- [**Meta-Llama-3.1-405B-Instruct**](https://huggingface.co/hugging-quants/Meta-Llama-3.1-405B-Instruct-AWQ-INT4): Language model for generating justifications.
 - **PubMedBERT**: Classifier for claim evaluation.
 - **Streamlit**: For building an interactive user interface.
 
