@@ -839,7 +839,7 @@ elif page == "Page check":
             else:
                 reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
 
-            st.caption(f"### {reliability}")
+            #st.caption(f"### {reliability}")
             st.markdown(f"The page is considered {reliability} because it contains {true_count} true claims, {false_count} false claims, and {nei_count} claims with not enough information.", unsafe_allow_html=True)
         
             with st.popover("ℹ️ Understanding the Truthfulness Ratings"):
