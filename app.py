@@ -14,8 +14,9 @@ from io import BytesIO
 from newsplease import NewsPlease
 from streamlit_echarts import st_echarts
 from streamlit_option_menu import option_menu
-# https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19
 
+# https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19 True
+# https://newssalutebenessere.altervista.org/covid-19-just-a-simple-flue-or-something-else/ False
 # Percorsi dei file
 embeddings_file = r"data\abstract_embeddings.npy"
 pmid_file = r"data\pmids.npy"
@@ -468,7 +469,7 @@ if page == "Single claim check":
                     </div>
                     """
                     col1, col2 = st.columns([0.8, 0.2])
-                    
+
                     with col1:
                         if processed_abstracts:
                             tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
@@ -476,15 +477,20 @@ if page == "Single claim check":
                                 if content not in seen_contents:  # Aggiungi solo se non è già stato visto
                                     seen_contents.add(content)
                                     with tab:
+                                        # Inverti i colori se predicted_label è "False"
+                                        if predicted_label.lower() == "false":
+                                            content = content.replace("background-color: lightgreen", "background-color: tempcolor")
+                                            content = content.replace("background-color: red", "background-color: lightgreen")
+                                            content = content.replace("background-color: tempcolor", "background-color: red")
                                         # Usa `st.write` per visualizzare HTML direttamente
                                         st.write(content, unsafe_allow_html=True)
                         else:
                             st.markdown("No relevant Scientific Evidence found")
-                    
+
                     with col2:
                         st.caption("Legend")
                         st.markdown(legend_html, unsafe_allow_html=True)
-
+                    
 elif page == "Page check":
     st.subheader("Page check")
     st.caption("✨ Enter a URL to fact-check the health-related claims on the page and hit the button to see the results! 🔍")
@@ -499,16 +505,16 @@ elif page == "Page check":
 
         with st.spinner('🌐🔍 Extracting claims...'):
             article_data = get_article_data(url)
-
+            
             try:
                 # Costruisci il prompt
                 prompt_template = f'''[INST]  <<SYS>>
 
-                You are an expert scraper. Your task is to extract from the url health related question.
+                Your task is to extract from the site potential health related question to verify their veracity.
 
-                the url from extract the context and the clam is: {article_data}
+                the context extracted from the web where to take the clam is: {article_data}
 
-                Create simple claim of single sentence.
+                Create simple claim of single sentence from the context.
 
                 Dont's use *
 
@@ -711,12 +717,8 @@ elif page == "Page check":
                         # Evidenzia frasi di supporto in verde
                         supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
-                        
-                        # Evidenzia frasi di rifiuto in rosso
                         refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, refusing_matches, "red", predicted_label)
-                        
-                        # Aggiungi solo abstract che hanno frasi evidenziate in verde
                         if supporting_matches:
                             # Aggiungi la reference se esiste una variabile corrispondente
                             reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
@@ -758,6 +760,11 @@ elif page == "Page check":
                                 if content not in seen_contents:  # Aggiungi solo se non è già stato visto
                                     seen_contents.add(content)
                                     with tab:
+                                        # Inverti i colori se predicted_label è "False"
+                                        if predicted_label.lower() == "false":
+                                            content = content.replace("background-color: lightgreen", "background-color: tempcolor")
+                                            content = content.replace("background-color: red", "background-color: lightgreen")
+                                            content = content.replace("background-color: tempcolor", "background-color: red")
                                         # Usa `st.write` per visualizzare HTML direttamente
                                         st.write(content, unsafe_allow_html=True)
                         else:
