@@ -689,7 +689,7 @@ elif page == "Page check":
                         f"**Prediction of claim:** Most likely <span style='color: {color}; font-weight: bold;'>{predicted_label}</span> with a confidence of <span style='color: {color}; font-weight: bold;'>{confidence}</span>",
                         unsafe_allow_html=True
                     )
-                    st.markdo
+                    
                     st.markdown("### **Justification**")
                     st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
                     abstracts = {
@@ -832,15 +832,16 @@ elif page == "Page check":
             if true_count > 0 and false_count == 0:
                 reliability = '<span style="color: darkgreen; font-weight: bold;">Highly Reliable</span>'
             elif true_count > false_count:
-                reliability = '<span style="color: lightgreen; font-weight: bold;">Moderately Reliable</span>'
+                reliability = '<span style="color: lightgreen; font-weight: bold;">Fairly Reliable</span>'
             elif true_count == 0:
-                reliability = '<span style="color: darkred; font-weight: bold;">Not Reliable at All</span>'
+                reliability = '<span style="color: darkred; font-weight: bold;">Strongly Considered Unreliable</span>'
             elif false_count > true_count:
-                reliability = '<span style="color: lightcoral; font-weight: bold;">Not Reliable</span>'
+                reliability = '<span style="color: lightcoral; font-weight: bold;">Unlikely to be Reliable</span>'
             elif (true_count == false_count) or (nei_count > true_count and nei_count > false_count and true_count != 0 and false_count != 0):
                 reliability = '<span style="color: yellow; font-weight: bold;">NEI</span>'
             else:
                 reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
+
 
             #st.caption(f"### {reliability}")
             st.markdown(f"The page is considered {reliability} because it contains {true_count} true claims, {false_count} false claims, and {nei_count} claims with not enough information.", unsafe_allow_html=True)
@@ -849,8 +850,9 @@ elif page == "Page check":
                 st.markdown("""
                 The reliability of the page is determined based on the number of true and false claims extracted from the page.
                 - If the page contains only true claims, it is considered **Highly Reliable**.
-                - If the page has more true claims than false claims, it is considered **Moderately Reliable**.
-                - If the page contains only false claims, it is considered **Not Reliable at All**.
+                - If the page has more true claims than false claims, it is considered **Fairly Reliable**.
+                 -If the page has more false claims than true claims, it is considered **Unlikely to be Reliable**.
+                - If the page contains only false claims, it is considered **Strongly Considered Unreliable**.
                 - If the page has an equal number of true and false claims, it is considered **NEI**.
                 """)
 
@@ -860,7 +862,7 @@ elif page == "Page check":
             )
 
 if page == "Video check":
-    st.subheader("Single claim check")
+    st.subheader("Video claim check")
     st.caption("✨ Upload a video to fact-check and hit the button to see the results! 🔍")
 
     video = st.file_uploader("Choose a video...", type=["mp4"])
@@ -1069,7 +1071,7 @@ if page == "Video check":
                         f"**Prediction of claim:** Most likely <span style='color: {color}; font-weight: bold;'>{predicted_label}</span> with a confidence of <span style='color: {color}; font-weight: bold;'>{confidence}</span>",
                         unsafe_allow_html=True
                     )
-                    st.markdo
+                    
                     st.markdown("### **Justification**")
                     st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
                     abstracts = {
@@ -1212,11 +1214,11 @@ if page == "Video check":
             if true_count > 0 and false_count == 0:
                 reliability = '<span style="color: darkgreen; font-weight: bold;">Highly Reliable</span>'
             elif true_count > false_count:
-                reliability = '<span style="color: lightgreen; font-weight: bold;">Moderately Reliable</span>'
+                reliability = '<span style="color: lightgreen; font-weight: bold;">Fairly Reliable</span>'
             elif true_count == 0:
-                reliability = '<span style="color: darkred; font-weight: bold;">Not Reliable at All</span>'
+                reliability = '<span style="color: darkred; font-weight: bold;">Strongly Considered Unreliable</span>'
             elif false_count > true_count:
-                reliability = '<span style="color: lightcoral; font-weight: bold;">Not Reliable</span>'
+                reliability = '<span style="color: lightcoral; font-weight: bold;">Unlikely to be Reliable</span>'
             elif (true_count == false_count) or (nei_count > true_count and nei_count > false_count and true_count != 0 and false_count != 0):
                 reliability = '<span style="color: yellow; font-weight: bold;">NEI</span>'
             else:
@@ -1229,8 +1231,9 @@ if page == "Video check":
                 st.markdown("""
                 The reliability of the video is determined based on the number of true and false claims extracted from the video.
                 - If the video contains only true claims, it is considered **Highly Reliable**.
-                - If the video has more true claims than false claims, it is considered **Moderately Reliable**.
-                - If the video contains only false claims, it is considered **Not Reliable at All**.
+                - If the video has more true claims than false claims, it is considered **Fairly Reliable**.
+                - If the video has more false claims than true claims, it is considered **Unlikely to be Reliable**.
+                - If the video contains only false claims, it is considered **Strongly Considered Unreliable**.
                 - If the video has an equal number of true and false claims, it is considered **NEI**.
                 """)
 
