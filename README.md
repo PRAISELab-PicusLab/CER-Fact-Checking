@@ -80,4 +80,4 @@ CER demonstrates how fact-checking using LLMs and evidence retrieval techniques 
 ## 🙏 Acknowledgments
 Special thanks to the dataset creators, library developers, and the research team for their contributions to this project.
 
-👨‍💻 This project was developed by Antonio Romano, Giuseppe Riccio, Marco Postiglione, and Vincenzo Moscato.
+👨‍💻 This project was developed by Mariano Barone, Antonio Romano, Giuseppe Riccio, Marco Postiglione, and Vincenzo Moscato.
