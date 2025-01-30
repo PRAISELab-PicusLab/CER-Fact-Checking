@@ -1,56 +1,71 @@
-import matplotlib.pyplot as plt
-import streamlit as st
-import pandas as pd
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
-import os
-from openai import OpenAI
 import re
-from transformers import pipeline
-import requests
-from bs4 import BeautifulSoup
-from io import BytesIO
-from newsplease import NewsPlease
-from streamlit_echarts import st_echarts
-from streamlit_option_menu import option_menu
+import os
+import faiss
 import whisper
 import ffmpeg
 import tempfile
+import requests
+import numpy as np
+import pandas as pd
+import streamlit as st
 
-# https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19 True
-# https://newssalutebenessere.altervista.org/covid-19-just-a-simple-flue-or-something-else/ False
-# Percorsi dei file
+from openai import OpenAI
+from transformers import pipeline
+from sentence_transformers import SentenceTransformer
+from newsplease import NewsPlease
+from streamlit_echarts import st_echarts
+from streamlit_option_menu import option_menu
+
+# NEWS to check
+# https://fbe.unimelb.edu.au/newsroom/fake-news-in-the-age-of-covid-19                          True Claim
+# https://newssalutebenessere.altervista.org/covid-19-just-a-simple-flue-or-something-else/     False Claim
+
+###### CONFIGURATIONS ######
+# Debug mode
+debug = False
+
+# File paths
 embeddings_file = r"data\abstract_embeddings.npy"
 pmid_file = r"data\pmids.npy"
 faiss_index_file = r"data\faiss_index.index"
 file_path = r'data\parte_205.csv'
-#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
+
+# Initialize OpenAI API client
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key="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"
+    api_key=st.secrets.nvidia.api_key
 )
 
-# Carica i dati
+# Load data
 data = pd.read_csv(file_path)
 
-# Inizializza il modello
-model = SentenceTransformer('all-MiniLM-L6-v2')  # Puoi cambiare modello se necessario
+# Load the model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
 
 def get_article_data(url):
+    """
+    Extracts article data from a specified URL.
+    
+    Args:
+        url (str): URL of the article to analyze.
+    
+    Returns:
+        dict: Structured article data, including: title, authors, publication date, and content.
+    """
     try:
-        # Effettua una richiesta HTTP all'URL specificato
+        # Make an HTTP request to the specified URL
         response = requests.get(url)
-        # Verifica che la risposta sia positiva (status code 200)
+        # Check if the request was successful (i.e., status code 200)
         response.raise_for_status()
 
-        # Estrae il contenuto HTML della pagina
+        # Extract the HTML content from the response
         html_content = response.text
 
-        # Utilizza NewsPlease per analizzare il contenuto dell'articolo
+        # Use NewsPlease to extract structured data from the HTML content
         article = NewsPlease.from_html(html_content, url=url)
 
-        # Restituisci i dati strutturati dell'articolo
+        # Return the structured article data
         return {
             "title": article.title,
             "authors": article.authors,
@@ -59,12 +74,22 @@ def get_article_data(url):
         }
 
     except requests.exceptions.RequestException as e:
-        return {"error": f"Errore durante il recupero dell'URL: {e}"}
+        return {"error": f"Error during URL retrieval: {e}"}
+
     except Exception as e:
-        return {"error": f"Errore durante l'elaborazione dell'articolo: {e}"}
+        return {"error": f"Error processing the article: {e}"}
+
 
 def extract_and_split_claims(claims):
-    """Estrae e divide i claims da un testo"""
+    """
+    Extracts and splits claims from a given string.
+    
+    Args:
+        claims (str): String containing claims.
+    
+    Returns:
+        dict: Dictionary containing the extracted claims.
+    """
     start_index = claims.find("Claim 1:")
     if start_index != -1:
         claims = claims[start_index:]
@@ -80,66 +105,66 @@ def extract_and_split_claims(claims):
 
     return claims_dict
 
+
 def extract_label_and_score(result):
     """
-    Estrae la prima label e il primo score da una stringa data.
-
-    Parametri:
-        result (str): Stringa contenente i dati (formato JSON-like).
+    Extracts the predicted label and score from the result string.
     
-    Ritorna:
-        tuple: (predicted_label, score_label), dove:
-               - predicted_label (str) è la prima label trovata.
-               - score_label (float) è il primo score trovato.
+    Args:
+        result (str): String containing the prediction result.
+    
+    Returns:
+        tuple: Predicted label and score.
     """
-    # Estrarre la prima label
+    # Extract the predicted label
     label_match = re.search(r"'labels': \['(.*?)'", result)
     predicted_label = label_match.group(1) if label_match else None
 
-    # Estrarre il primo score
+    # Extract the score
     score_match = re.search(r"'scores': \[(\d+\.\d+)", result)
     score_label = float(score_match.group(1)) if score_match else None
 
     return predicted_label, score_label
 
-# Funzione per estrarre e pulire le frasi da un elenco di stringhe
+
 def clean_phrases(phrases, pattern):
     """
-    Pulisce le frasi eliminando informazioni aggiuntive e restituendo un dizionario.
-
+    Clean and extract phrases from a list of strings using a specified pattern.
+    
     Args:
-    - phrases (list): Lista di stringhe contenenti frasi con riferimenti nel formato
-      "testo della frase" (abstract_N).
-    - pattern (str): Pattern per estrarre il testo della frase e il riferimento all'abstract.
-
+        phrases (list): List of strings containing phrases.
+        pattern (str): Regular expression pattern to extract phrases.
+    
     Returns:
-    - list: Lista di dizionari con "text" e "abstract".
+        list: List of cleaned phrases as dictionaries with text and abstract keys
     """
     cleaned_phrases = []
+
     for phrase in phrases:
         matches = re.findall(pattern, phrase)
         cleaned_phrases.extend([{"text": match[0], "abstract": f"abstract_{match[1]}"} for match in matches])
+
     return cleaned_phrases
 
-# Funzione per evidenziare le frasi
+
 def highlight_phrases(abstract_text, phrases, color, label):
     """
-    Evidenzia le frasi corrispondenti con un background colorato specifico, con possibilità di invertire i colori.
-
+    Highlight phrases in the abstract text with the specified background color.
+    
     Args:
-    - abstract_text (str): Testo dell'abstract.
-    - phrases (list): Lista di dizionari contenenti frasi e abstract di riferimento.
-    - color (str): Colore per evidenziare il background delle frasi.
-    - label (str): Se "false", inverte i colori; se "true" o "NEI", non fa niente.
-
+        abstract_text (str): Text of the abstract to highlight.
+        phrases (list): List of phrases to highlight.
+        color (str): Background color to use for highlighting.
+        label (str): Predicted label for the claim.
+    
     Returns:
-    - str: Abstract con le frasi evidenziate.
+        str: Abstract text with highlighted phrases.
     """
-    # Inverti i colori se label è "false"
+    # Switch colors if the label is "False"
     if label.lower() == "false":
         color = "lightgreen" if color == "red" else color
 
-    # Evidenzia le frasi con il background colorato specificato
+    # Highlight each phrase in the abstract text
     for phrase in phrases:
         abstract_text = re.sub(
             re.escape(phrase["text"]),
@@ -147,17 +172,28 @@ def highlight_phrases(abstract_text, phrases, color, label):
             abstract_text,
             flags=re.IGNORECASE
         )
+
     return abstract_text
 
+
 def parse_response(response):
-    # Valori di default per ogni campo
+    """
+    Parse the response from the model and extract the fields.
+    
+    Args:
+        response (str): Response string from the model.
+    
+    Returns:
+        tuple: Extracted fields from the response.
+    """
+    # Initial values for the fields
     first_label = "Non trovato"
     justification = "Non trovato"
     supporting = "Non trovato"
     refusing = "Non trovato"
     notes = "Non trovato"
 
-    # Pattern per ciascun campo
+    # Regular expression patterns for extracting fields
     patterns = {
         "first_label": r"Label:\s*(.*?)\n",
         "justification": r"Justification:\s*(.*?)(?=\nSupporting sentences)",
@@ -166,7 +202,7 @@ def parse_response(response):
         "notes": r"Note:\s*(.*)"
     }
 
-    # Parsing dei campi
+    # Extract the fields using regular expressions
     if match := re.search(patterns["first_label"], response, re.DOTALL):
         first_label = match.group(1).strip()
     if match := re.search(patterns["justification"], response, re.DOTALL):
@@ -178,28 +214,60 @@ def parse_response(response):
     if match := re.search(patterns["notes"], response, re.DOTALL):
         notes = match.group(1).strip()
 
-    # Restituisce le variabili separate
+    # Return the extracted fields
     return first_label, justification, supporting, refusing, notes
 
-def load_embeddings(embeddings_file, pmid_file, faiss_index_file):
-    if not (os.path.exists(embeddings_file) and os.path.exists(pmid_file) and os.path.exists(faiss_index_file)):
-        raise FileNotFoundError("Uno o più file salvati non sono stati trovati.")
 
-    # Carica embeddings e PMID
+def load_embeddings(embeddings_file, pmid_file, faiss_index_file, debug=False):
+    """
+    Load embeddings, PMIDs, and FAISS index from the specified files.
+    
+    Args:
+        embeddings_file (str): File path for the embeddings.
+        pmid_file (str): File path for the PMIDs.
+        faiss_index_file (str): File path for the FAISS index.
+    
+    Returns:
+        tuple: Tuple containing the embeddings, PMIDs, and FAISS index.
+    """
+    # Check if the files exist
+    if not (os.path.exists(embeddings_file) and os.path.exists(pmid_file) and os.path.exists(faiss_index_file)):
+        raise FileNotFoundError("One or more files not found. Please check the file paths.")
+
+    # Load the embeddings and PMIDs
     embeddings = np.load(embeddings_file)
     pmids = np.load(pmid_file, allow_pickle=True)
 
-    # Carica l'indice FAISS
+    # Load the FAISS index
     index = faiss.read_index(faiss_index_file)
 
-    print("Embeddings e indice FAISS caricati con successo.")
+    if debug:
+        print("Embeddings, PMIDs, and FAISS index loaded successfully.")
+
     return embeddings, pmids, index
 
+
 def retrieve_top_abstracts(claim, model, index, pmids, data, top_k=5):
+    """
+    Retrieve the top abstracts from the FAISS index for a given claim.
+    
+    Args:
+        claim (str): Claim to fact-check.
+        model (SentenceTransformer): Sentence transformer model for encoding text.
+        index (faiss.IndexFlatIP): FAISS index for similarity search.
+        pmids (np.ndarray): Array of PMIDs for the abstracts.
+        data (pd.DataFrame): DataFrame containing the abstract data.
+        top_k (int): Number of top abstracts to retrieve.
+    
+    Returns:
+        list: List of tuples containing the abstract text, PMID, and distance.
+    """
+    # Encode the claim using the SentenceTransformer model
     claim_embedding = model.encode([claim])
-    faiss.normalize_L2(claim_embedding)  # Normalizza l'embedding della claim
+    faiss.normalize_L2(claim_embedding)  # Normalize the claim embedding (with L2 norm)
     distances, indices = index.search(claim_embedding, top_k)
 
+    # Retrieve the top abstracts based on the indices
     results = []
     for j, i in enumerate(indices[0]):
         pmid = pmids[i]
@@ -209,21 +277,32 @@ def retrieve_top_abstracts(claim, model, index, pmids, data, top_k=5):
 
     return results
 
+
 def generate_justification(query, justification):
-    # Frase di giustificazione e classi
+    """
+    Generate a justification for the claim using the Zero-Shot Classification model.
+    
+    Args:
+        query (str): Claim to fact-check.
+        justification (str): Justification for the claim.
+    
+    Returns:
+        str: Final justification for the claim.
+    """
+    # Define the classes for the Zero-Shot Classification model
     Class = ["True", "False","NEI"]
 
-    # Preparare la stringa di giustificazione
+    # Generate the justification text
     justification_text = (
         f'Justification: "{justification}"'
     )
 
-    # Limitare la lunghezza della giustificazione a 512 caratteri
+    # Limit the justification text to a maximum length
     max_length = 512
     if len(justification_text) > max_length:
         justification_text = justification_text[:max_length]
 
-    # Generare output con il classificatore
+    # Generate the final justification using the Zero-Shot Classification model
     output = zeroshot_classifier(
         query,
         Class,
@@ -231,34 +310,130 @@ def generate_justification(query, justification):
         multi_label=False
     )
 
-    # Preparare la giustificazione finale
+    # Prepare the final justification text
     final_justification = f'{output}.'
 
     return final_justification
 
 
-# Title
-st.set_page_config(page_title="CER - Combining Evidence and Reasoning Demo", layout="wide", initial_sidebar_state="collapsed")
+def llm_reasoning_template(query):
+    """
+    Generate a template for the prompt used for justification generation by the LLM model.
+    
+    Args:
+        query (str): Claim to fact-check.
+    
+    Returns:
+        str: Reasoning template for the claim.
+    """
+    llm_reasoning_prompt = f"""<<SYS>> [INST]
 
-# horizontal menu
+    You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
+
+    Use the information in Context.
+
+    Elaborate the Context to generate a new information.
+
+    Use only the knowledge in Context to answer.
+
+    Answer describing in a scentific way. Be formal during the answer. Use the third person.
+
+    Answer without mentioning the Context. Use it but don't refer to it in the text.
+
+    To answer, use max 300 word.
+
+    Create a Justification from the sentences given.
+
+    Use the structure: Justification: The claim is (label) because... (don't use the word "context")
+
+    Write as an online doctor to create the Justification.
+
+    After, give some sentences from Context from scientific papers: that supports the label and reject the label.
+
+    Supporting sentences from abstracts:
+    information sentence from abstract_1: 
+    information sentence from abstract_2: 
+    ..
+    Refusing sentences from abstracts:
+    information sentence from abstract_1: 
+    information sentence from abstract_2: 
+    ..
+    Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
+
+    With the answer, gives a line like: "Label:". Always put Label as first. After Label, give the Justification.
+    The justification will be always given as Justification: 
+    Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
+    The Label will be chosen with a voting system of support/refuse before.
+
+    [/INST] <</SYS>>
+
+    [INST] Question: {query} [/INST]
+    [INST] Context from scientific papers: 
+    """
+
+    return llm_reasoning_prompt
+
+
+def claim_detection_template(full_text):
+    """
+    Generate a template for the prompt used for claim detection by the LLM model.
+    
+    Args:
+        full_text (str): Full text to analyze.
+    
+    Returns:
+        str: Template for claim detection.
+    """
+    claim_detection_prompt = f"""<<SYS>> [INST]
+
+    Your task is to extract from the text potential health related question to verify their veracity.
+
+    The context extracted from the online where to take the claim is: {full_text}
+
+    Create simple claim of single sentence from the context.
+
+    Dont's use *
+
+    Give just the claim. Don't write other things.
+
+    Extract only health related claim.
+
+    Rank eventual claim like:
+
+    Claim 1:
+    Claim 2:
+    Claim 3:
+    
+    Use always this structure.
+    Start every claim with "Claim " followed by the number.
+
+    The number of claims may go from 1 to a max of 5.
+
+    The claims have to be always health related. [/INST] <</SYS>>
+    """
+
+    return claim_detection_prompt
+
+
+# Page and Title Configuration
+st.set_page_config(page_title="CER - Combining Evidence and Reasoning Demo", layout="wide", initial_sidebar_state="collapsed")
+st.markdown("<h1 style='text-align: center; color: inherit;'>✔️✨ CER - Biomedical Fact Checker</h1>", unsafe_allow_html=True)
+
+# Horizontal option menu for selecting the page
 page = option_menu(None, ["Single claim check", "Page check", "Video check"], 
     icons=['check', 'ui-checks'], 
     menu_icon="cast", default_index=0, orientation="horizontal")
-print(page)
 
-
-st.markdown("<h1 style='text-align: center; color: black;'>✔️✨ CER - Biomedical Fact Checker</h1>", unsafe_allow_html=True)
-
-# Sidebar per la navigazione
+# Sidebar Configuration
 st.sidebar.title("🔬 Combining Evidence and Reasoning Demo")
 st.sidebar.caption("🔍 Fact-check biomedical claims using scientific evidence and reasoning.")
 st.sidebar.markdown("---")
 st.sidebar.caption("#### ℹ️ About")
 st.sidebar.caption("This is a demo application for fact-checking biomedical claims using scientific evidence and reasoning. It uses a combination of language models, scientific literature, and reasoning to provide explanations for the predictions.")
 
-# Carica embeddings e indice FAISS una sola volta
+# Load embeddings, PMIDs, and FAISS index
 if 'embeddings_loaded' not in st.session_state:
-    embeddings, pmids, index = load_embeddings(embeddings_file, pmid_file, faiss_index_file)
+    embeddings, pmids, index = load_embeddings(embeddings_file, pmid_file, faiss_index_file, debug)
     st.session_state.embeddings = embeddings
     st.session_state.pmids = pmids
     st.session_state.index = index
@@ -268,13 +443,15 @@ else:
     pmids = st.session_state.pmids
     index = st.session_state.index
 
-# Mantieni la claim nello stato della sessione
+# Check if the claim and top_abstracts are in the session state
 if 'claim' not in st.session_state:
     st.session_state.claim = ""
 
 if 'top_abstracts' not in st.session_state:
     st.session_state.top_abstracts = []
 
+
+#### Single claim check PAGE ####
 if page == "Single claim check":
     st.subheader("Single claim check")
     st.caption("✨ Enter a single claim to fact-check and hit the button to see the results! 🔍")
@@ -284,8 +461,9 @@ if page == "Single claim check":
     if st.button("✨ Fact Check"):
 
         if st.session_state.claim:
+            # Retrieve the top abstracts for the claim
             top_abstracts = retrieve_top_abstracts(st.session_state.claim, model, index, pmids, data, top_k=5)
-            st.session_state.top_abstracts = top_abstracts  # Salva i risultati
+            st.session_state.top_abstracts = top_abstracts
 
             st.markdown("### **Results**")
 
@@ -295,122 +473,88 @@ if page == "Single claim check":
                     globals()[f"abstract_{i}"] = abstract
                     globals()[f"reference_{i}"] = pubmed_url
                     globals()[f"distance_{i}"] = distance
-                prompt_template = f'''[INST] '''
 
                 with st.spinner('🔍 We are checking...'):
                     try:
-                        # Preleva la domanda dal DataFrame
+                        # Retrieve the question from the DataFrame
                         query = st.session_state.claim
 
-                        # Costruisci il prompt
-                        prompt_template = f'''[INST]  <<SYS>>
+                        # Generate the reasoning template
+                        prompt_template = llm_reasoning_template(query)
 
-                        You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
+                        # Add the abstracts to the prompt
+                        for i in range(1, len(st.session_state.top_abstracts)):
+                            prompt_template += f"{globals()[f'abstract_{i}']} ; "
+                        prompt_template += f"{globals()[f'abstract_{i+1}']} [/INST]"
 
-                        Use the information in Context
-
-                        elaborate the context to generate a new information.
-
-                        Use only the knowledge in Context to answer.
-
-                        Answer describing in a scentific way. Be formal during the answer. Use the third person.
-
-                        Answer without mentioning the context. Use it but don't refer to it in the text
-
-                        to answer, use max 300 word
-
-                        Create a Justification from the sentences given.
-
-                        Use the structure: Justification: .... (don't use the word context)
-
-                        Write as an online doctor to create the justification.
-
-                        After, give some sentences from Context from scientific papers: that supports the label and reject the label
-
-                        Supporting sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Refusing sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
-
-                        with the answer, gives a line like: "Label:". Always put Label as first. After Label, give the justification
-                        The justification will be always given as Justification:
-                        Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
-                        The Label will be chosen with a voting system of support/refuse before
-                        <<SYS>>
-
-                        Question: {query} [/INST]
-                        Context from scientific papers: {abstract_1} ; {abstract_2} ; {abstract_3} ; {abstract_4} ; {abstract_5} [/INST]
-                        '''
-
-                        # Chiamata API
+                        # Call the API
                         completion = client.chat.completions.create(
-                        model="meta/llama-3.1-405b-instruct",
-                        messages=[{"role": "user", "content": prompt_template}],
-                        temperature=0.1,
-                        top_p=0.7,
-                        max_tokens=1024,
-                        stream=True
+                            model="meta/llama-3.1-405b-instruct",
+                            messages=[{"role": "user", "content": prompt_template}],
+                            temperature=0.1,
+                            top_p=0.7,
+                            max_tokens=1024,
+                            stream=True
                         )
 
-                        # Raccogli la risposta
-                        Risposta = ""
+                        # Collect the response
+                        answer = ""
                         for chunk in completion:
                             if chunk.choices[0].delta.content:
-                                Risposta += chunk.choices[0].delta.content
+                                answer += chunk.choices[0].delta.content
 
-                        # Debug: Controlla la risposta
-                        #st.write(Risposta)
+                        # Debug: Check the answer
+                        if debug:
+                            print(f"{answer}")
 
                     except Exception as e:
                         st.write(f"Error processing index: {e}")
 
                 with st.spinner('🤔💬 Justifying the check...'):
-                    # Esegui il parsing e separa le variabili
+                    # Perform parsing and separate variables
                     zeroshot_classifier = pipeline(
-                    "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
+                        "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
                     )
-                    first_label, justification, supporting, refusing, notes = parse_response(Risposta)
-                    
-                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):      
+                    first_label, justification, supporting, refusing, notes = parse_response(answer)
+
+                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):
+                    # Generate the justification for the claim
                     result = generate_justification(st.session_state.claim, justification)
                     predicted_label, score_label = extract_label_and_score(result)
 
                     if predicted_label == "True":
-                        color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                        color = f"rgba(0, 204, 0, {score_label})"  # Green
                     elif predicted_label == "False":
-                        color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                        color = f"rgba(204, 0, 0, {score_label})"  # Red
                     elif predicted_label == "NEI":
-                        color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                        color = f"rgba(255, 255, 0, {score_label})"  # Yellow
                     else:
                         color = "black"  # Default color
-                        
-                    confidence = f"{score_label * 100:.2f}%" 
+
+                    # Calculate the confidence score
+                    confidence = f"{score_label * 100:.2f}%"
                     st.caption(f"📝 The Claim: {st.session_state.claim}")
-                    #st.markdown(f'{st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
                     st.markdown(
                         f"**Prediction of claim:** Most likely <span style='color: {color}; font-weight: bold;'>{predicted_label}</span> with a confidence of <span style='color: {color}; font-weight: bold;'>{confidence}</span>",
                         unsafe_allow_html=True
                     )
                     st.markdown("### **Justification**")
                     st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
-                    abstracts = {
-                        "abstract_1": abstract_1,
-                        "abstract_2": abstract_2,
-                        "abstract_3": abstract_3,
-                        "abstract_4": abstract_4,
-                        "abstract_5": abstract_5
-                    }
+
+                    # Extract the abstracts and references
+                    abstracts = {}
+                    for i in range(1, len(st.session_state.top_abstracts) + 1):
+                        abstracts[f"abstract_{i}"] = globals()[f"abstract_{i}"]
+
+                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
+
                     supporting_texts = []
                     for item in supporting:
                         try:
                             supporting_texts.append(item["text"])
                         except (TypeError, KeyError):
                             continue
+                    supporting = clean_phrases(supporting_texts, pattern)
 
                     refusing_text = []
                     for item in refusing:
@@ -418,54 +562,56 @@ if page == "Single claim check":
                             refusing_text.append(item["text"])
                         except (TypeError, KeyError):
                             continue
-                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
-                    #st.write(supporting)
-                    #st.write(supporting_texts)
-                    supporting = clean_phrases(supporting_texts, pattern)
-                    #st.write(supporting)
                     refusing = clean_phrases(refusing_text, pattern)
+
+                    if debug:
+                        print(supporting)
+                        print(refusing)
+
                     processed_abstracts = {}
                     for abstract_name, abstract_text in abstracts.items():
-                        # Evidenzia frasi di supporto in verde
+                        # Highlight supporting phrases in green
                         supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
                         
-                        # Evidenzia frasi di rifiuto in rosso
+                        # Highlight refusing phrases in red
                         refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, refusing_matches, "red", predicted_label)
                         
-                        # Aggiungi solo abstract che hanno frasi evidenziate in verde
+                        # Add only if supporting matches are found
                         if supporting_matches:
-                            # Aggiungi la reference se esiste una variabile corrispondente
-                            reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
-                            if reference_variable in globals():  # Controlla se la variabile esiste
+                            # Add the reference if a corresponding variable exists
+                            reference_variable = f"reference_{abstract_name.split('_')[1]}"
+                            if reference_variable in globals():
                                 reference_value = globals()[reference_variable]
                                 abstract_text += f"<br><br><strong>🔗 Reference:</strong> {reference_value}"
                             
-                            # Aggiungi l'abstract processato
+                            # Add the processed abstract
                             processed_abstracts[abstract_name] = abstract_text
 
-                    # Itera sugli abstract processati ed elimina duplicati
-                    seen_contents = set()  # Insieme per tracciare contenuti già visti
+                    # Iterate over the processed abstracts and remove duplicates
+                    seen_contents = set()  # Set to track already seen contents
                     evidence_counter = 1
-                    # Visualizza i risultati degli abstract processati con expander numerati
+
+                    # Display the results of the processed abstracts with numbered expanders
                     st.markdown("### **Scientific Evidence**")
-                    # Aggiungi una legenda per i colori
+
+                    # Add a legend for the colors
                     legend_html = """
-                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Positive Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Negative Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Dubious Evidence</div>
-                    </div>
-                    </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Positive Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Negative Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Dubious Evidence</div>
+                        </div>
+                        </div>
                     """
                     col1, col2 = st.columns([0.8, 0.2])
 
@@ -473,15 +619,16 @@ if page == "Single claim check":
                         if processed_abstracts:
                             tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
                             for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                                if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                                if content not in seen_contents:  # Check for duplicates
                                     seen_contents.add(content)
                                     with tab:
-                                        # Inverti i colori se predicted_label è "False"
+                                        # Switch colors if the label is "False"
                                         if predicted_label.lower() == "false":
                                             content = content.replace("background-color: lightgreen", "background-color: tempcolor")
                                             content = content.replace("background-color: red", "background-color: lightgreen")
                                             content = content.replace("background-color: tempcolor", "background-color: red")
-                                        # Usa `st.write` per visualizzare HTML direttamente
+                                        
+                                        # Use `st.write` to display HTML directly
                                         st.write(content, unsafe_allow_html=True)
                         else:
                             st.markdown("No relevant Scientific Evidence found")
@@ -489,15 +636,16 @@ if page == "Single claim check":
                     with col2:
                         st.caption("Legend")
                         st.markdown(legend_html, unsafe_allow_html=True)
-                    
+
+
+#### Web page check PAGE ####
 elif page == "Page check":
     st.subheader("Page check")
     st.caption("✨ Enter a URL to fact-check the health-related claims on the page and hit the button to see the results! 🔍")
+
     url = st.text_input("URL to fact-check:")
-    
+
     if st.button("✨ Fact Check") and url:
-
-
         st.session_state.true_count = 0
         st.session_state.false_count = 0
         st.session_state.nei_count = 0
@@ -506,62 +654,34 @@ elif page == "Page check":
             article_data = get_article_data(url)
             
             try:
-                # Costruisci il prompt
-                prompt_template = f'''[INST]  <<SYS>>
+                # Retrieve the claims from the article data
+                prompt_template = claim_detection_template(article_data)
 
-                Your task is to extract from the site potential health related question to verify their veracity.
-
-                the context extracted from the web where to take the clam is: {article_data}
-
-                Create simple claim of single sentence from the context.
-
-                Dont's use *
-
-                Give just the claim. Don't write other things
-
-                Extract only health related claim.
-
-                Rank eventual claim like:
-
-                Claim 1:
-                Claim 2:
-                Claim 3:
-                
-                Use always this structure.
-                Start every claim with "Claim " followed by the number
-
-                The number of claims may go from 1 to a max of 5 
-
-                The claims have to be always health related
-
-                
-                '''
-
-                # Chiamata API
+                # Call the API
                 completion = client.chat.completions.create(
-                model="meta/llama-3.1-405b-instruct",
-                messages=[{"role": "user", "content": prompt_template}],
-                temperature=0.1,
-                top_p=0.7,
-                max_tokens=1024,
-                stream=True
+                    model="meta/llama-3.1-405b-instruct",
+                    messages=[{"role": "user", "content": prompt_template}],
+                    temperature=0.1,
+                    top_p=0.7,
+                    max_tokens=1024,
+                    stream=True
                 )
 
-                # Raccogli la risposta
-                Answer = ""
+                # Collect the response
+                answer = ""
                 for chunk in completion:
                     if chunk.choices[0].delta.content:
-                        Answer += chunk.choices[0].delta.content
+                        answer += chunk.choices[0].delta.content
 
                 # Debug: Controlla la risposta
-                print(f"{Answer}")
+                print(f"{answer}")
 
             except Exception as e:
                 print(f"Error {e}")
 
-            claims_dict = extract_and_split_claims(Answer)
+            claims_dict = extract_and_split_claims(answer)
 
-        # Visualizza le claim su Streamlit con expander
+        # Display the extracted claims
         st.markdown("### **Claims Extracted**")
         st.caption("🔍 Here are the health-related claims extracted from the page:")
         cols = st.columns(3)
@@ -570,6 +690,7 @@ elif page == "Page check":
             with col.expander(f"Claim {i} 📝", expanded=True):
                 st.write(claim_text)
 
+        # Display the results for the extracted claims
         st.markdown("### **Results**")
         st.caption("🔍 Here are the results for the extracted claims:")
         for claim_key, claim_text in claims_dict.items():
@@ -584,59 +705,21 @@ elif page == "Page check":
                     globals()[f"abstract_{i}"] = abstract
                     globals()[f"reference_{i}"] = pubmed_url
                     globals()[f"distance_{i}"] = distance
-                prompt_template = f'''[INST] '''
 
                 with st.spinner('🔍 We are checking...'):
                     try:
-                        # Preleva la domanda dal DataFrame
+                        # Retrieve the question from the DataFrame
                         query = st.session_state.claim
 
-                        # Costruisci il prompt
-                        prompt_template = f'''[INST]  <<SYS>>
+                        # Generate the reasoning template
+                        prompt_template = llm_reasoning_template(query)
 
-                        You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
+                        # Add the abstracts to the prompt
+                        for i in range(1, len(st.session_state.top_abstracts)):
+                            prompt_template += f"{globals()[f'abstract_{i}']} ; "
+                        prompt_template += f"{globals()[f'abstract_{i+1}']} [/INST]"
 
-                        Use the information in Context
-
-                        elaborate the context to generate a new information.
-
-                        Use only the knowledge in Context to answer.
-
-                        Answer describing in a scentific way. Be formal during the answer. Use the third person.
-
-                        Answer without mentioning the context. Use it but don't refer to it in the text
-
-                        to answer, use max 300 word
-
-                        Create a Justification from the sentences given.
-
-                        Use the structure: Justification: The claim is (label) because.. (don't use the word context)
-
-                        Write as an online doctor to create the justification.
-
-                        After, give some sentences from Context from scientific papers: that supports the label and reject the label
-
-                        Supporting sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Refusing sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
-
-                        with the answer, gives a line like: "Label:". Always put Label as first. After Label, give the justification
-                        The justification will be always given as Justification:
-                        Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
-                        The Label will be chosen with a voting system of support/refuse before
-                        <<SYS>>
-
-                        Question: {query} [/INST]
-                        Context from scientific papers: {abstract_1} ; {abstract_2} ; {abstract_3} ; {abstract_4} ; {abstract_5} [/INST]
-                        '''
-
-                        # Chiamata API
+                        # Call the API
                         completion = client.chat.completions.create(
                             model="meta/llama-3.1-405b-instruct",
                             messages=[{"role": "user", "content": prompt_template}],
@@ -646,45 +729,46 @@ elif page == "Page check":
                             stream=True
                         )
 
-                        # Raccogli la risposta
-                        Risposta = ""
+                        # Collect the response
+                        answer = ""
                         for chunk in completion:
                             if chunk.choices[0].delta.content:
-                                Risposta += chunk.choices[0].delta.content
+                                answer += chunk.choices[0].delta.content
 
-                        # Debug: Controlla la risposta
-                        print("{Nuova answer}")
+                        # Debug: Check the answer
+                        if debug:
+                            print(f"{answer}")
 
                     except Exception as e:
                             st.write(f"Error processing index: {e}")
 
                 with st.spinner('🤔💬 Justifying the check...'):
-                    # Esegui il parsing e separa le variabili
+                    # Perform parsing and separate variables
                     zeroshot_classifier = pipeline(
-                    "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
+                        "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
                     )
-                    first_label, justification, supporting, refusing, notes = parse_response(Risposta)
-                    
-                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):      
+                    first_label, justification, supporting, refusing, notes = parse_response(answer)
+                
+                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):
+                    # Generate the justification for the claim
                     result = generate_justification(st.session_state.claim, justification)
                     predicted_label, score_label = extract_label_and_score(result)
 
-                    # Incrementa i contatori in base al predicted_label
+                    # Update the counts based on the predicted label
                     if predicted_label == "True":
-                        color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                        color = f"rgba(0, 204, 0, {score_label})"  # Green
                         st.session_state.true_count += 1
                     elif predicted_label == "False":
-                        color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                        color = f"rgba(204, 0, 0, {score_label})"  # Red
                         st.session_state.false_count += 1
                     elif predicted_label == "NEI":
-                        color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                        color = f"rgba(255, 255, 0, {score_label})"  # Yellow
                         st.session_state.nei_count += 1
                     else:
                         color = "black"  # Default color
 
                     confidence = f"{score_label * 100:.2f}%" 
                     st.caption(f"📝 The Claim: {st.session_state.claim}")
-                    #st.markdown(f'{st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
                     st.markdown(
                         f"**Prediction of claim:** Most likely <span style='color: {color}; font-weight: bold;'>{predicted_label}</span> with a confidence of <span style='color: {color}; font-weight: bold;'>{confidence}</span>",
                         unsafe_allow_html=True
@@ -692,19 +776,20 @@ elif page == "Page check":
                     
                     st.markdown("### **Justification**")
                     st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
-                    abstracts = {
-                    "abstract_1": abstract_1,
-                    "abstract_2": abstract_2,
-                    "abstract_3": abstract_3,
-                    "abstract_4": abstract_4,
-                    "abstract_5": abstract_5
-                    }
+                    
+                    abstracts = {}
+                    for i in range(1, len(st.session_state.top_abstracts) + 1):
+                        abstracts[f"abstract_{i}"] = globals()[f"abstract_{i}"]
+                    
+                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
+                    
                     supporting_texts = []
                     for item in supporting:
                         try:
                             supporting_texts.append(item["text"])
                         except (TypeError, KeyError):
                             continue
+                    supporting = clean_phrases(supporting_texts, pattern)
 
                     refusing_text = []
                     for item in refusing:
@@ -712,47 +797,56 @@ elif page == "Page check":
                             refusing_text.append(item["text"])
                         except (TypeError, KeyError):
                             continue
-                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
-                    supporting = clean_phrases(supporting_texts, pattern)
                     refusing = clean_phrases(refusing_text, pattern)
+
+                    if debug:
+                        print(supporting)
+                        print(refusing)
+
                     processed_abstracts = {}
                     for abstract_name, abstract_text in abstracts.items():
-                        # Evidenzia frasi di supporto in verde
+                        # Highlight supporting phrases in green
                         supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
+                        
+                        # Highlight refusing phrases in red
                         refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, refusing_matches, "red", predicted_label)
+                        
+                        # Add only if supporting matches are found
                         if supporting_matches:
-                            # Aggiungi la reference se esiste una variabile corrispondente
-                            reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
-                            if reference_variable in globals():  # Controlla se la variabile esiste
+                            # Add the reference if a corresponding variable exists
+                            reference_variable = f"reference_{abstract_name.split('_')[1]}"
+                            if reference_variable in globals():
                                 reference_value = globals()[reference_variable]
                                 abstract_text += f"<br><br><strong>🔗 Reference:</strong> {reference_value}"
                             
-                            # Aggiungi l'abstract processato
+                            # Add the processed abstract
                             processed_abstracts[abstract_name] = abstract_text
 
-                    # Itera sugli abstract processati ed elimina duplicati
-                    seen_contents = set()  # Insieme per tracciare contenuti già visti
+                    # Iterate over the processed abstracts and remove duplicates
+                    seen_contents = set()  # Set to track already seen contents
                     evidence_counter = 1
-                    # Visualizza i risultati degli abstract processati con expander numerati
+                    
+                    # Display the results of the processed abstracts with numbered expanders
                     st.markdown("### **Scientific Evidence**")
-                    # Aggiungi una legenda per i colori
+                    
+                    # Add a legend for the colors
                     legend_html = """
-                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Positive Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Negative Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Dubious Evidence</div>
-                    </div>
-                    </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Positive Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Negative Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Dubious Evidence</div>
+                        </div>
+                        </div>
                     """
                     col1, col2 = st.columns([0.8, 0.2])
                     
@@ -760,15 +854,16 @@ elif page == "Page check":
                         if processed_abstracts:
                             tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
                             for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                                if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                                if content not in seen_contents:  # Check for duplicates
                                     seen_contents.add(content)
                                     with tab:
-                                        # Inverti i colori se predicted_label è "False"
+                                        # Switch colors if the label is "False"
                                         if predicted_label.lower() == "false":
                                             content = content.replace("background-color: lightgreen", "background-color: tempcolor")
                                             content = content.replace("background-color: red", "background-color: lightgreen")
                                             content = content.replace("background-color: tempcolor", "background-color: red")
-                                        # Usa `st.write` per visualizzare HTML direttamente
+                                        
+                                        # Use `st.write` to display HTML directly
                                         st.write(content, unsafe_allow_html=True)
                         else:
                             st.markdown("No relevant Scientific Evidence found")
@@ -780,18 +875,18 @@ elif page == "Page check":
         st.markdown("### **Page Summary**")
         st.caption("📊 Here is a summary of the results for the extracted claims:")
 
-        # Labels e colori
+        # Labels and Colors
         labels = ['True', 'False', 'NEI']
         colors = ['green', 'red', 'yellow']
 
-        # Dati
+        # Sizes of the pie chart
         sizes = [
             st.session_state.true_count,
             st.session_state.false_count,
             st.session_state.nei_count
         ]
 
-        # Configurazione del grafico a torta
+        # Configure the Pie Chart Options
         options = {
             "tooltip": {"trigger": "item"},
             "legend": {"top": "5%", "left": "center"},
@@ -820,7 +915,7 @@ elif page == "Page check":
             ],
         }
 
-        # Visualizzazione con Streamlit
+        # Display the Pie Chart
         st1, st2 = st.columns([0.6, 0.4])
 
         with st1:
@@ -842,10 +937,8 @@ elif page == "Page check":
             else:
                 reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
 
-
-            #st.caption(f"### {reliability}")
             st.markdown(f"The page is considered {reliability} because it contains {true_count} true claims, {false_count} false claims, and {nei_count} claims with not enough information.", unsafe_allow_html=True)
-        
+
             with st.popover("ℹ️ Understanding the Truthfulness Ratings"):
                 st.markdown("""
                 The reliability of the page is determined based on the number of true and false claims extracted from the page.
@@ -861,89 +954,77 @@ elif page == "Page check":
             options=options, height="500px",
             )
 
-if page == "Video check":
+
+#### Video check PAGE ####
+elif page == "Video check":
     st.subheader("Video claim check")
     st.caption("✨ Upload a video to fact-check and hit the button to see the results! 🔍")
 
     video = st.file_uploader("Choose a video...", type=["mp4"])
+    video_box, text_box = st.columns([0.6, 0.4])
+    if video is not None:
+        with video_box:
+            with st.expander("▶️ See uploaded video", expanded=False):
+                st.video(video)
 
     if st.button("✨ Fact Check") and video is not None:
-
-       
         with st.spinner('🎥🔄 Processing video...'):
+            # Save the video to a temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
                 temp_video.write(video.read())
-                temp_video_path = temp_video.name  
+                temp_video_path = temp_video.name
+            
+            # Extract the audio from the video
             temp_audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".wav").name
             ffmpeg.input(temp_video_path).output(temp_audio_path, acodec="pcm_s16le", ar=16000, ac=1).run(overwrite_output=True)
-            model1 = whisper.load_model("small") 
+            
+            # Transcribe the audio
+            model1 = whisper.load_model("small")
             result = model1.transcribe(temp_audio_path)
-            final_text = result["text"]
+            
+            # Extract the final text
+            transcribed_text = result["text"]
+            with text_box:
+                with st.expander("📝 Transcribed Text", expanded=False):
+                    st.caption("🔍 Here is the transcribed text from the uploaded video:")
+                    container = st.container(height=322)
+                    container.write(transcribed_text)
 
         st.session_state.true_count = 0
         st.session_state.false_count = 0
         st.session_state.nei_count = 0
 
         with st.spinner('🌐🔍 Extracting claims from video...'):
-            
-            
             try:
-                # Costruisci il prompt
-                prompt_template = f'''[INST]  <<SYS>>
+                # Retrieve the claims from the video
+                prompt_template = claim_detection_template(transcribed_text)
 
-                Your task is to extract from the video potential health related question to verify their veracity.
-
-                the context extracted from the web where to take the clam is: {final_text}
-
-                Create simple claim of single sentence from the context.
-
-                Dont's use *
-
-                Give just the claim. Don't write other things
-
-                Extract only health related claim.
-
-                Rank eventual claim like:
-
-                Claim 1:
-                Claim 2:
-                Claim 3:
-                
-                Use always this structure.
-                Start every claim with "Claim " followed by the number
-
-                The number of claims may go from 1 to a max of 5 
-
-                The claims have to be always health related
-
-                
-                '''
-
-                # Chiamata API
+                # Call the API
                 completion = client.chat.completions.create(
-                model="meta/llama-3.1-405b-instruct",
-                messages=[{"role": "user", "content": prompt_template}],
-                temperature=0.1,
-                top_p=0.7,
-                max_tokens=1024,
-                stream=True
+                    model="meta/llama-3.1-405b-instruct",
+                    messages=[{"role": "user", "content": prompt_template}],
+                    temperature=0.1,
+                    top_p=0.7,
+                    max_tokens=1024,
+                    stream=True
                 )
 
-                # Raccogli la risposta
-                Answer = ""
+                # Collect the response
+                answer = ""
                 for chunk in completion:
                     if chunk.choices[0].delta.content:
-                        Answer += chunk.choices[0].delta.content
+                        answer += chunk.choices[0].delta.content
 
-                # Debug: Controlla la risposta
-                print(f"{Answer}")
+                # Debug: Check the answer
+                if debug:
+                    print(f"{answer}")
 
             except Exception as e:
                 print(f"Error {e}")
 
-            claims_dict = extract_and_split_claims(Answer)
+            claims_dict = extract_and_split_claims(answer)
 
-        # Visualizza le claim su Streamlit con expander
+        # Display the extracted claims
         st.markdown("### **Claims Extracted**")
         st.caption("🔍 Here are the health-related claims extracted from the video:")
         cols = st.columns(3)
@@ -952,6 +1033,7 @@ if page == "Video check":
             with col.expander(f"Claim {i} 📝", expanded=True):
                 st.write(claim_text)
 
+        # Display the results for the extracted claims
         st.markdown("### **Results**")
         st.caption("🔍 Here are the results for the extracted claims:")
         for claim_key, claim_text in claims_dict.items():
@@ -966,59 +1048,21 @@ if page == "Video check":
                     globals()[f"abstract_{i}"] = abstract
                     globals()[f"reference_{i}"] = pubmed_url
                     globals()[f"distance_{i}"] = distance
-                prompt_template = f'''[INST] '''
 
                 with st.spinner('🔍 We are checking...'):
                     try:
-                        # Preleva la domanda dal DataFrame
+                        # Retrieve the question from the DataFrame
                         query = st.session_state.claim
 
-                        # Costruisci il prompt
-                        prompt_template = f'''[INST]  <<SYS>>
+                        # Generate the reasoning template
+                        prompt_template = llm_reasoning_template(query)
 
-                        You are a helpful, respectful and honest Doctor. Always answer as helpfully as possible using the context text provided.
+                        # Add the abstracts to the prompt
+                        for i in range(1, len(st.session_state.top_abstracts)):
+                            prompt_template += f"{globals()[f'abstract_{i}']} ; "
+                        prompt_template += f"{globals()[f'abstract_{i+1}']} [/INST]"
 
-                        Use the information in Context
-
-                        elaborate the context to generate a new information.
-
-                        Use only the knowledge in Context to answer.
-
-                        Answer describing in a scentific way. Be formal during the answer. Use the third person.
-
-                        Answer without mentioning the context. Use it but don't refer to it in the text
-
-                        to answer, use max 300 word
-
-                        Create a Justification from the sentences given.
-
-                        Use the structure: Justification: The claim is (label) because.. (don't use the word context)
-
-                        Write as an online doctor to create the justification.
-
-                        After, give some sentences from Context from scientific papers: that supports the label and reject the label
-
-                        Supporting sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Refusing sentences from abstracts:
-                        information sentence from abstract_1:
-                        information sentence from abstract_2: 
-                        ..
-                        Add where it comes from (abstract_1, abstract_2, abstract_3, abstract_4, abstract_5)
-
-                        with the answer, gives a line like: "Label:". Always put Label as first. After Label, give the justification
-                        The justification will be always given as Justification:
-                        Label can be yes, no, NEI, where yes: claim is true. no: claim is false. NEI: not enough information.
-                        The Label will be chosen with a voting system of support/refuse before
-                        <<SYS>>
-
-                        Question: {query} [/INST]
-                        Context from scientific papers: {abstract_1} ; {abstract_2} ; {abstract_3} ; {abstract_4} ; {abstract_5} [/INST]
-                        '''
-
-                        # Chiamata API
+                        # Call the API
                         completion = client.chat.completions.create(
                             model="meta/llama-3.1-405b-instruct",
                             messages=[{"role": "user", "content": prompt_template}],
@@ -1028,45 +1072,46 @@ if page == "Video check":
                             stream=True
                         )
 
-                        # Raccogli la risposta
-                        Risposta = ""
+                        # Collect the response
+                        answer = ""
                         for chunk in completion:
                             if chunk.choices[0].delta.content:
-                                Risposta += chunk.choices[0].delta.content
+                                answer += chunk.choices[0].delta.content
 
-                        # Debug: Controlla la risposta
-                        print("{Nuova answer}")
+                        # Debug: Check the answer
+                        if debug:
+                            print(f"{answer}")
 
                     except Exception as e:
                             st.write(f"Error processing index: {e}")
 
                 with st.spinner('🤔💬 Justifying the check...'):
-                    # Esegui il parsing e separa le variabili
+                    # Perform parsing and separate variables
                     zeroshot_classifier = pipeline(
-                    "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
+                        "zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33"
                     )
-                    first_label, justification, supporting, refusing, notes = parse_response(Risposta)
+                    first_label, justification, supporting, refusing, notes = parse_response(answer)
                     
-                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):      
+                with st.spinner('🕵️‍♂️📜 We are finding evidence...'):
+                    # Generate the justification for the claim
                     result = generate_justification(st.session_state.claim, justification)
                     predicted_label, score_label = extract_label_and_score(result)
 
-                    # Incrementa i contatori in base al predicted_label
+                    # Update the counts based on the predicted label
                     if predicted_label == "True":
-                        color = f"rgba(0, 204, 0, {score_label})"  # Verde
+                        color = f"rgba(0, 204, 0, {score_label})"  # Green
                         st.session_state.true_count += 1
                     elif predicted_label == "False":
-                        color = f"rgba(204, 0, 0, {score_label})"  # Rosso
+                        color = f"rgba(204, 0, 0, {score_label})"  # Red
                         st.session_state.false_count += 1
                     elif predicted_label == "NEI":
-                        color = f"rgba(255, 255, 0, {score_label})"  # Giallo
+                        color = f"rgba(255, 255, 0, {score_label})"  # Yellow
                         st.session_state.nei_count += 1
                     else:
                         color = "black"  # Default color
 
                     confidence = f"{score_label * 100:.2f}%" 
                     st.caption(f"📝 The Claim: {st.session_state.claim}")
-                    #st.markdown(f'{st.session_state.claim} is <span style="color: {color}; font-weight: bold;">{predicted_label}</span>', unsafe_allow_html=True)
                     st.markdown(
                         f"**Prediction of claim:** Most likely <span style='color: {color}; font-weight: bold;'>{predicted_label}</span> with a confidence of <span style='color: {color}; font-weight: bold;'>{confidence}</span>",
                         unsafe_allow_html=True
@@ -1074,19 +1119,20 @@ if page == "Video check":
                     
                     st.markdown("### **Justification**")
                     st.markdown(f'<p> {justification}</p>', unsafe_allow_html=True)
-                    abstracts = {
-                    "abstract_1": abstract_1,
-                    "abstract_2": abstract_2,
-                    "abstract_3": abstract_3,
-                    "abstract_4": abstract_4,
-                    "abstract_5": abstract_5
-                    }
+                    
+                    abstracts = {}
+                    for i in range(1, len(st.session_state.top_abstracts) + 1):
+                        abstracts[f"abstract_{i}"] = globals()[f"abstract_{i}"]
+
+                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
+
                     supporting_texts = []
                     for item in supporting:
                         try:
                             supporting_texts.append(item["text"])
                         except (TypeError, KeyError):
                             continue
+                    supporting = clean_phrases(supporting_texts, pattern)
 
                     refusing_text = []
                     for item in refusing:
@@ -1094,47 +1140,51 @@ if page == "Video check":
                             refusing_text.append(item["text"])
                         except (TypeError, KeyError):
                             continue
-                    pattern = r'"\s*(.*?)\s*"\s*\(abstract_(\d+)\)'
-                    supporting = clean_phrases(supporting_texts, pattern)
                     refusing = clean_phrases(refusing_text, pattern)
+                    
                     processed_abstracts = {}
                     for abstract_name, abstract_text in abstracts.items():
-                        # Evidenzia frasi di supporto in verde
+                        # Highlight supporting phrases in green
                         supporting_matches = [phrase for phrase in supporting if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, supporting_matches, "lightgreen", predicted_label)
+                        
+                        # Highlight refusing phrases in red
                         refusing_matches = [phrase for phrase in refusing if phrase["abstract"] == abstract_name]
                         abstract_text = highlight_phrases(abstract_text, refusing_matches, "red", predicted_label)
+                        
                         if supporting_matches:
-                            # Aggiungi la reference se esiste una variabile corrispondente
-                            reference_variable = f"reference_{abstract_name.split('_')[1]}"  # Genera il nome della variabile
-                            if reference_variable in globals():  # Controlla se la variabile esiste
+                            # Add the reference if a corresponding variable exists
+                            reference_variable = f"reference_{abstract_name.split('_')[1]}"
+                            if reference_variable in globals():
                                 reference_value = globals()[reference_variable]
                                 abstract_text += f"<br><br><strong>🔗 Reference:</strong> {reference_value}"
                             
-                            # Aggiungi l'abstract processato
+                            # Add the processed abstract
                             processed_abstracts[abstract_name] = abstract_text
 
-                    # Itera sugli abstract processati ed elimina duplicati
-                    seen_contents = set()  # Insieme per tracciare contenuti già visti
+                    # Iterate over the processed abstracts and remove duplicates
+                    seen_contents = set()  # Set to track already seen contents
                     evidence_counter = 1
-                    # Visualizza i risultati degli abstract processati con expander numerati
+                    
+                    # Display the results of the processed abstracts with numbered expanders
                     st.markdown("### **Scientific Evidence**")
-                    # Aggiungi una legenda per i colori
+                    
+                    # Add a legend for the colors
                     legend_html = """
-                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Positive Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Negative Evidence</div>
-                    </div>
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                    <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
-                    <div>Dubious Evidence</div>
-                    </div>
-                    </div>
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: lightgreen; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Positive Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: red; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Negative Evidence</div>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                        <div style="width: 20px; height: 20px; background-color: yellow; margin-right: 10px; border-radius: 5px;"></div>
+                        <div>Dubious Evidence</div>
+                        </div>
+                        </div>
                     """
                     col1, col2 = st.columns([0.8, 0.2])
                     
@@ -1142,15 +1192,16 @@ if page == "Video check":
                         if processed_abstracts:
                             tabs = st.tabs([f"Scientific Evidence {i}" for i in range(1, len(processed_abstracts) + 1)])
                             for tab, (name, content) in zip(tabs, processed_abstracts.items()):
-                                if content not in seen_contents:  # Aggiungi solo se non è già stato visto
+                                if content not in seen_contents:  # Check for duplicates
                                     seen_contents.add(content)
                                     with tab:
-                                        # Inverti i colori se predicted_label è "False"
+                                        # Switch colors if the label is "False"
                                         if predicted_label.lower() == "false":
                                             content = content.replace("background-color: lightgreen", "background-color: tempcolor")
                                             content = content.replace("background-color: red", "background-color: lightgreen")
                                             content = content.replace("background-color: tempcolor", "background-color: red")
-                                        # Usa `st.write` per visualizzare HTML direttamente
+                                        
+                                        # Use `st.write` to display HTML directly
                                         st.write(content, unsafe_allow_html=True)
                         else:
                             st.markdown("No relevant Scientific Evidence found")
@@ -1162,18 +1213,18 @@ if page == "Video check":
         st.markdown("### **Video Summary**")
         st.caption("📊 Here is a summary of the results for the extracted claims:")
 
-        # Labels e colori
+        # Labels and Colors
         labels = ['True', 'False', 'NEI']
         colors = ['green', 'red', 'yellow']
 
-        # Dati
+        # Sizes of the pie chart
         sizes = [
             st.session_state.true_count,
             st.session_state.false_count,
             st.session_state.nei_count
         ]
 
-        # Configurazione del grafico a torta
+        # Configure the Pie Chart Options
         options = {
             "tooltip": {"trigger": "item"},
             "legend": {"top": "5%", "left": "center"},
@@ -1202,7 +1253,7 @@ if page == "Video check":
             ],
         }
 
-        # Visualizzazione con Streamlit
+        # Display the Pie Chart
         st1, st2 = st.columns([0.6, 0.4])
 
         with st1:
@@ -1224,7 +1275,6 @@ if page == "Video check":
             else:
                 reliability = '<span style="color: black; font-weight: bold;">Completely Reliable</span>'
 
-            #st.caption(f"### {reliability}")
             st.markdown(f"The video is considered {reliability} because it contains {true_count} true claims, {false_count} false claims, and {nei_count} claims with not enough information.", unsafe_allow_html=True)
         
             with st.popover("ℹ️ Understanding the Truthfulness Ratings"):
