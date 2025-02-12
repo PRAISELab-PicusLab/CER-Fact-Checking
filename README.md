@@ -3,7 +3,7 @@
 Welcome to the demo of the *CER (Combining Evidence and Reasoning)* system for fact-checking biomedical claims. This tool combines PubMed, one of the leading biomedical knowledge bases, with Large Language Models (LLMs) to verify the accuracy of claims, generate justifications, and provide reliable classifications.
 
 ## 🎥 Demo (or GIF)
-[Watch our demo]() to see how CER supports biomedical fact-checking and enhances the transparency of scientific recommendations!
+[Watch our demo](CER-Biomedical_Fact_Checker.mp4) to see how CER supports biomedical fact-checking and enhances the transparency of scientific recommendations!
 
 ## 📊 Data Sources
 We use the following data sources for training and evaluating the system:
