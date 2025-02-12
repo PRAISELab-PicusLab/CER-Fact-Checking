@@ -1,3 +1,5 @@
+.venv/
+.streamlit/
 data/.gitattributes
 data/abstract_embeddings.npy
 data/faiss_index.index
