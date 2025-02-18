@@ -1,5 +1,11 @@
 # 🩺 CER Demo: *Fact-Checking Biomedical Claims*
 
+<div align="center">
+    <a href="https://huggingface.co/spaces/giuseppericcio/cer-fact-checking" target="_blank"><img alt="CER Demo"
+        src="https://img.shields.io/badge/HuggingFace-CER%20Demo-grey?style=for-the-badge&logo=huggingface&logoSize=auto&color=gold"/></a>
+</div>
+<hr>
+
 Welcome to the demo of the *CER (Combining Evidence and Reasoning)* system for fact-checking biomedical claims. This tool combines PubMed, one of the leading biomedical knowledge bases, with Large Language Models (LLMs) to verify the accuracy of claims, generate justifications, and provide reliable classifications.
 
 ## 🎥 Demo (or GIF)
