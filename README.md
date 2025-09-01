@@ -10,6 +10,29 @@
 
 Welcome to the demo of the *CER (Combining Evidence and Reasoning)* system for fact-checking biomedical claims. This tool combines PubMed, one of the leading biomedical knowledge bases, with Large Language Models (LLMs) to verify the accuracy of claims, generate justifications, and provide reliable classifications.
 
+### 🔍 Scientific References
+
+This project leverages cutting-edge research in Generative AI, recommender systems, and sports analytics. If you use this project for your research, please cite [this paper](https://dl.acm.org/doi/abs/10.1145/3726302.3730155) 🙏.
+```bash
+@inproceedings{10.1145/3726302.3730155,
+author = {Barone, Mariano and Romano, Antonio and Riccio, Giuseppe and Postiglione, Marco and Moscato, Vincenzo},
+title = {Combating Biomedical Misinformation through Multi-modal Claim Detection and Evidence-based Verification},
+year = {2025},
+isbn = {9798400715921},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3726302.3730155},
+doi = {10.1145/3726302.3730155},
+abstract = {Biomedical misinformation - ranging from misleading social media posts to fake news articles and deepfake videos - is increasingly pervasive across digital platforms, posing significant risks to public health and clinical decision-making. We developed CER, a comprehensive fact-checking system designed specifically for biomedical content. CER integrates specialized components for claim detection, scientific evidence retrieval, and veracity assessment, leveraging both transformer models and large language models to process textual and multimedia content. Unlike existing fact-checking systems that focus solely on structured text, CER can analyze claims from diverse sources including videos and web content through automatic transcription and text extraction. The system interfaces with PubMed for evidence retrieval, employing both sparse and dense retrieval methods to gather relevant scientific literature. Our evaluations on standard benchmarks including HealthFC, BioASQ-7, and SciFact demonstrate that CER achieves state-of-the-art performance, with F1-score improvements compared to existing approaches. To ensure reproducibility and transparency, we release the GitHub repository with the source code, within which you can reach an interactive demonstration of the system published on HuggingFace and a video demonstration of the system https://github.com/PRAISELab-PicusLab/CER-Fact-Checking.},
+booktitle = {Proceedings of the 48th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+pages = {4025–4029},
+numpages = {5},
+keywords = {fact-checking, generative ai, healthcare, large language models},
+location = {Padua, Italy},
+series = {SIGIR '25}
+}
+```
+
 ## 🎥 Demo (or GIF)
 [Watch our demo](CER-Biomedical_Fact_Checker.mp4) to see how CER supports biomedical fact-checking and enhances the transparency of scientific recommendations!
 
